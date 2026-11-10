@@ -9,6 +9,7 @@ import platform
 import subprocess
 import sys
 import time
+from capability_manifest import parse_manifest
 
 
 def main():
@@ -18,13 +19,14 @@ def main():
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
     parser.add_argument("--validation", action="store_true")
+    parser.add_argument("--require-native-validation", action="store_true")
     args = parser.parse_args()
     if not 0 < args.timeout <= 600 or args.adapter < 0:
         parser.error("timeout must be in (0,600] seconds and adapter must be nonnegative")
     exe = args.exe.resolve(strict=True)
     args.output.mkdir(parents=True, exist_ok=False)
     command = [str(exe), "--adapter", str(args.adapter)]
-    if args.validation:
+    if args.validation or args.require_native_validation:
         command.append("--validation")
     started = time.monotonic()
     receipt = {
@@ -59,6 +61,18 @@ def main():
                 receipt["status"] = "passed"
         else:
             receipt["failure"] = "Expected exactly one structured fixture result"
+        if receipt["status"] == "passed":
+            try:
+                manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
+                receipt["capability_manifest"] = manifest
+                receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                active = manifest["instance"]["native_validation_active"]
+                receipt["fixture"]["native_validation_active"] = active
+                if args.require_native_validation and not active:
+                    raise ValueError("Required native Vulkan validation layer is not active")
+            except (ValueError, KeyError, TypeError) as error:
+                receipt["status"] = "failed"
+                receipt["failure"] = str(error)
     except subprocess.TimeoutExpired as error:
         stdout, stderr = error.stdout or b"", error.stderr or b""
         receipt["timed_out"] = True

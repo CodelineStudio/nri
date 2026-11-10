@@ -1113,6 +1113,16 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 
             VkResult vkResult = m_VK.CreateDevice(m_PhysicalDevice, &deviceCreateInfo, m_AllocationCallbackPtr, &m_Device);
             NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkCreateDevice");
+
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+            VkPhysicalDeviceProperties2 observedProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+            m_VK.GetPhysicalDeviceProperties2(m_PhysicalDevice, &observedProperties);
+            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device\",\"physical_api\":%u,\"effective_minor\":%u,\"timeline\":%u,\"synchronization2\":%u,\"dynamic_rendering\":%u,\"extension_count\":%u}",
+                observedProperties.properties.apiVersion, m_MinorVersion, features12.timelineSemaphore, features13.synchronization2, features13.dynamicRendering, deviceCreateInfo.enabledExtensionCount);
+
+            for (const char* extension : desiredDeviceExts)
+                NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device_extension\",\"name\":\"%s\"}", extension);
+#endif
         }
 
         Result res = ResolveDispatchTable(desiredDeviceExts);
@@ -2160,6 +2170,16 @@ Result DeviceVK::CreateInstance(bool enableGraphicsAPIValidation, const Vector<c
 
     vkResult = m_VK.CreateInstance(&instanceCreateInfo, m_AllocationCallbackPtr, &m_Instance);
     NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkCreateInstance");
+
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+    // The only requested layer above is Khronos validation. Report after successful
+    // instance creation, using the filtered list actually passed to the loader.
+    NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"instance\",\"loader_api\":%u,\"instance_api\":%u,\"native_validation_active\":%s,\"extension_count\":%u}",
+        instanceVersion, appInfo.apiVersion, layers.empty() ? "false" : "true", instanceCreateInfo.enabledExtensionCount);
+
+    for (const char* extension : desiredInstanceExts)
+        NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"instance_extension\",\"name\":\"%s\"}", extension);
+#endif
 
     if (enableGraphicsAPIValidation) {
         PFN_vkCreateDebugUtilsMessengerEXT vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT)m_VK.GetInstanceProcAddr(m_Instance, "vkCreateDebugUtilsMessengerEXT");

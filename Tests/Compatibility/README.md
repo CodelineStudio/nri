@@ -34,19 +34,24 @@ stderr and a receipt, bounds startup/waits/teardown, kills and reaps only its ow
 fixture process on timeout, and returns nonzero for failure or missing receipts.
 It does not launch games, services or other child applications.
 
+The fixture build enables private `NRI_COMPATIBILITY_DIAGNOSTICS` only on its
+NRI Vulkan target. After successful instance/device creation, the actual enabled
+versions, extensions and key features are emitted through the callback. The
+runner requires complete provenance; missing or mismatched records fail the run.
+Wrapped external devices are not currently covered by this provenance path.
+
 `--adapter INDEX` chooses the Vulkan enumeration index. `--validation` requests
 both NRI and native graphics validation; it does not establish that a native
 validation layer was available/enabled. NRI may filter missing instance layers.
-The result therefore records `validation_requested` separately from the currently
-unknown `native_validation_active`. Zero callback errors is **not** a native
-validation-clean claim. Independently verified layer activation is required for
-the later validation gate.
+The executable's raw result leaves activation unknown; the runner fills it from
+the successfully created instance's actual layer list. `--require-native-validation`
+requests validation and fails unless that list confirms activation. This does
+not imply synchronization/GPU-assisted validation settings were enabled.
 
 ## Coverage boundary
 
 This is an initial current-path transfer/fence baseline, not Vulkan 1.1 acceptance.
-It does not force capabilities off, expose enabled extension/API-version details,
-exercise WSI, execute shaders, or prove future waits, fan-out, cross-queue ordering,
-device loss or memory pressure. Unknown API/extension metadata is recorded as
-null, never inferred from NRI's version or the adapter name. Later fixtures must
+It does not force capabilities off, exercise WSI, execute shaders, or prove future waits, fan-out, cross-queue ordering,
+device loss or memory pressure. The manifest records actual NRI-created device
+configuration; it is never inferred from NRI's version or adapter name. Later fixtures must
 cover those cases and real older drivers before claiming compatibility support.

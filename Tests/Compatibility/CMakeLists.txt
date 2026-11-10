@@ -12,6 +12,8 @@ if(NOT NRI_ENABLE_VK_SUPPORT)
 endif()
 
 add_executable(NRICompatibilityBaseline baseline.cpp)
+# Test-only provenance: emit what NRI actually enabled, not a second probe device.
+target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_DIAGNOSTICS=1)
 target_compile_features(NRICompatibilityBaseline PRIVATE cxx_std_17)
 target_link_libraries(NRICompatibilityBaseline PRIVATE NRI)
 set_target_properties(NRICompatibilityBaseline PROPERTIES CXX_EXTENSIONS OFF)
