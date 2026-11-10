@@ -3,6 +3,8 @@
 This fork extends NRI to Vulkan **1.1 and newer** while retaining modern paths.
 The initial Vulkan 1.0 proposal was superseded; do not implement a 1.0 baseline.
 Read `Docs/CodelineVulkanCompatibility.md` before compatibility changes.
+For code/build changes also read `.agents/skills/nri-coding-standard/SKILL.md`;
+verify version-specific notes against the pinned source rather than stale prose.
 
 - Preserve upstream API/ABI/style and license notices. Do not add consumer engine
   headers, assets or private code to this reusable public dependency.
