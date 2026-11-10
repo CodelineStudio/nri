@@ -308,11 +308,16 @@ int main(int argc, char** argv) {
     passed = fixture.Cleanup() && passed;
     passed = passed && fixture.diagnostics.errors.load() == 0;
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
-    std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_buffer_baseline\",\"status\":\"%s\",\"source_commit\":%s,\"compiler\":%s,\"nri_version\":%u,\"backend\":\"Vulkan\",\"adapter_index\":%u,\"adapter_name\":%s,\"vendor\":%u,\"device_id\":%u,\"driver_version_raw\":%u,\"validation_requested\":%s,\"native_validation_active\":null,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_bytes\":%s,\"byte_count\":%u,\"completed_fence_value\":%llu,\"elapsed_seconds\":%.6f,\"failure\":%s,\"legacy_path_forced\":false,\"legacy_support_verified\":false,\"api_versions_and_enabled_extensions\":null}\n",
+    const int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_buffer_baseline\",\"status\":\"%s\",\"source_commit\":%s,\"compiler\":%s,\"nri_version\":%u,\"backend\":\"Vulkan\",\"adapter_index\":%u,\"adapter_name\":%s,\"vendor\":%u,\"device_id\":%u,\"driver_version_raw\":%u,\"validation_requested\":%s,\"native_validation_active\":null,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_bytes\":%s,\"byte_count\":%u,\"completed_fence_value\":%llu,\"elapsed_seconds\":%.6f,\"failure\":%s,\"legacy_path_forced\":false,\"legacy_support_verified\":false,\"api_versions_and_enabled_extensions\":null}\n",
         passed ? "passed" : "failed", JsonString(NRI_COMPATIBILITY_SOURCE_COMMIT).c_str(), JsonString(NRI_COMPATIBILITY_COMPILER).c_str(), unsigned(NRI_VERSION), adapterIndex,
         JsonString(fixture.adapter.name).c_str(), unsigned(fixture.adapter.vendor), fixture.adapter.deviceId, fixture.adapter.driverVersion, validation ? "true" : "false",
         fixture.diagnostics.errors.load(), fixture.diagnostics.warnings.load(), fixture.exactBytes ? "true" : "false", Fixture::BYTE_COUNT,
         static_cast<unsigned long long>(fixture.completedValue), seconds, JsonString(fixture.failure.c_str()).c_str());
+
+    // Deliver the receipt before process/static teardown; do not treat an
+    // unsuccessful write as a passed test even if the GPU checks completed.
+    if (written < 0 || std::fflush(stdout) != 0)
+        return 3;
 
     return passed ? 0 : 1;
 }
