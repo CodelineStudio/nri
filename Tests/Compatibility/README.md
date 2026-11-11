@@ -656,3 +656,30 @@ validation checks the calls; exact GPU readback still checks resource contents.
 The switch defaults OFF. This is range instrumentation, not noncoherent cache
 emulation or real noncoherent hardware acceptance. Dedicated allocation/map
 failure recovery can be combined with this profile.
+
+### Native wrapped memory and partial mappings
+
+NRICompatibilityWrappedMemory runs 24 shared native-allocation cases: eight
+caller-supplied partial mappings, eight finite partial mappings created by NRI,
+and eight caller mappings declared with native VK_WHOLE_SIZE. Two NRI buffers
+bind at different offsets inside each mapping. Exact GPU copies and a final
+native remap check both payload bytes and all surrounding allocation padding.
+Resources retire only after fence completion. After NRI wrapper destruction the
+fixture flushes the still-live mapping, unmaps it, remaps the still-live native
+allocation, and finally releases it through Vulkan. The native owner remains
+responsible for unmapping/freeing wrapped memory, including a mapping initiated
+by CreateMemoryVK when mappedMemory was not supplied.
+
+The fixture resolves native entry points through NRI's wrapper dispatch. A bound
+NRI buffer's address determines native allocation flags; the runner compares
+this with the actual enabled feature manifest. Compatible host-visible native
+memory is selected, preferring noncoherent memory if present; receipts record
+its actual properties rather than inferring coherency from a requested location.
+
+Use --fixture nri_vulkan_wrapped_memory with run_baseline.py. With
+NRI_COMPATIBILITY_MAPPED_RANGES=ON and --require-mapped-ranges, the runner also
+checks 192 requested intervals against the native mapping and binding manifests:
+128 finite-extent calls and 64 unknown-extent calls. Unknown extents intentionally
+retain the conservative final-atom fallback. This does not qualify arbitrary
+wrapped BufferVK offsets absent from that public descriptor, overlapping in-flight
+work, or noncoherent hardware when the selected memory is coherent.

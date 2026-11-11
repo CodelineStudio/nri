@@ -16,7 +16,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
-    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime"), default="nri_vulkan_buffer_baseline")
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -47,7 +47,7 @@ def main():
     parser.add_argument("--require-memory-failures", action="store_true")
     parser.add_argument("--require-mapped-ranges", action="store_true")
     args = parser.parse_args()
-    if args.require_mapped_ranges and args.fixture != "nri_vulkan_memory_lifetime":
+    if args.require_mapped_ranges and args.fixture not in ("nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory"):
         parser.error("Mapped range requirements need the memory lifetime fixture")
     if args.require_memory_failures and args.fixture != "nri_vulkan_memory_lifetime":
         parser.error("Memory failure requirements need the memory lifetime fixture")
@@ -121,6 +121,38 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.fixture == 'nri_vulkan_wrapped_memory':
+                    wrapped = receipt['fixture']
+                    if any(wrapped.get(k) != v for k, v in {'exact_cycles': 24, 'provided_mapping_cases': 8, 'nri_mapping_cases': 8, 'unknown_extent_cases': 8}.items()):
+                        raise ValueError('Wrapped mapping cases incomplete')
+                    if wrapped.get('address_allocation') != bool(manifest['device']['device_address']):
+                        raise ValueError('Native allocation flags disagree with enabled address feature')
+                    cases = [json.loads(line.split('NRI_WRAPPED_CASE ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_WRAPPED_CASE ')]
+                    if len(cases) != 24 or any(c['cycle'] != i or c['mode'] != i % 3 or not c['memory_flags'] & 2 for i, c in enumerate(cases)):
+                        raise ValueError('Wrapped native memory manifest incomplete')
+                    if wrapped.get('native_noncoherent_cases') != sum(not c['memory_flags'] & 4 for c in cases):
+                        raise ValueError('Native noncoherent coverage counter mismatch')
+                    receipt['wrapped_memory_cases'] = cases
+                    if args.require_mapped_ranges and not wrapped.get('mapped_ranges_forced'):
+                        raise ValueError('Wrapped range instrumentation inactive')
+                    if wrapped.get('mapped_ranges_forced'):
+                        ranges = [json.loads(line.split('NRI_MAPPED_RANGE ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if line.startswith('NRI_MAPPED_RANGE ')]
+                        if len(ranges) != 192:
+                            raise ValueError('Wrapped native mapped call coverage incomplete')
+                        for i, item in enumerate(ranges):
+                            case = cases[i // 8]
+                            base = case['mapping_offset'] + case['buffer_offsets'][(i % 8) // 4]
+                            offset, size = (0, 260) if i % 4 < 2 else (3, 125)
+                            mapped_end = 0 if case['mode'] == 2 else case['mapping_offset'] + case['mapping_size']
+                            if any(item[k] != v for k, v in {'memory_offset': base, 'buffer_size': 260, 'mapped_end': mapped_end, 'request_offset': offset, 'request_size': size, 'atom_size': case['atom_size']}.items()):
+                                raise ValueError('Wrapped mapping/binding metadata mismatch')
+                            atom = case['atom_size']
+                            start = ((base + offset) // atom) * atom
+                            end = ((base + offset + size + atom - 1) // atom) * atom
+                            expected_size = end - start if end <= (mapped_end or base + 260) else 0xffffffffffffffff
+                            if item['offset'] != start or item['size'] != expected_size or start < case['mapping_offset']:
+                                raise ValueError('Wrapped range escaped its mapping or included unnecessary atoms')
+                        receipt['wrapped_ranges'] = {'calls': len(ranges), 'known_extent_calls': 128, 'unknown_extent_calls': 64, 'whole_size_calls': sum(r['size'] == 0xffffffffffffffff for r in ranges)}
                 if args.fixture == 'nri_vulkan_memory_lifetime':
                     memory = receipt['fixture']
                     expected = 3 if memory.get('memory_failures') else 0

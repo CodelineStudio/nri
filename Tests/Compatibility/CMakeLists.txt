@@ -158,6 +158,17 @@ target_compile_definitions(NRICompatibilityQueryReset PRIVATE
     NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
     NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 
+add_executable(NRICompatibilityWrappedMemory wrapped_memory.cpp)
+target_compile_features(NRICompatibilityWrappedMemory PRIVATE cxx_std_17)
+set_target_properties(NRICompatibilityWrappedMemory PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(NRICompatibilityWrappedMemory PRIVATE NRI)
+target_include_directories(NRICompatibilityWrappedMemory PRIVATE "${vulkan_headers_SOURCE_DIR}/include")
+target_compile_definitions(NRICompatibilityWrappedMemory PRIVATE
+    NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+    NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+    NRI_COMPATIBILITY_MAPPED_RANGES=$<BOOL:${NRI_COMPATIBILITY_MAPPED_RANGES}>
+    NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
+
 add_executable(NRICompatibilityMemoryLifetime memory_lifetime.cpp)
 target_compile_features(NRICompatibilityMemoryLifetime PRIVATE cxx_std_17)
 set_target_properties(NRICompatibilityMemoryLifetime PROPERTIES CXX_EXTENSIONS OFF)
@@ -256,6 +267,9 @@ if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_
 endif()
 
 if(NOT NRI_STATIC_LIBRARY)
+    add_custom_command(TARGET NRICompatibilityWrappedMemory POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityWrappedMemory>"
+        VERBATIM)
     add_custom_command(TARGET NRICompatibilityMemoryLifetime POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityMemoryLifetime>"
         VERBATIM)
