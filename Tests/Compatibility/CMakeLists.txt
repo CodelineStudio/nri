@@ -182,6 +182,19 @@ target_compile_definitions(NRICompatibilityMemoryLifetime PRIVATE
     NRI_COMPATIBILITY_MEMORY_FAILURES=$<BOOL:${NRI_COMPATIBILITY_MEMORY_FAILURES}>)
 
 if(WIN32)
+    add_executable(NRICompatibilityMultiPresentation multi_presentation_win32.cpp)
+    target_compile_features(NRICompatibilityMultiPresentation PRIVATE cxx_std_17)
+    set_target_properties(NRICompatibilityMultiPresentation PROPERTIES CXX_EXTENSIONS OFF)
+    target_link_libraries(NRICompatibilityMultiPresentation PRIVATE NRI user32)
+    target_compile_definitions(NRICompatibilityMultiPresentation PRIVATE
+        NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+        NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+        NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
+    if(NOT NRI_STATIC_LIBRARY)
+        add_custom_command(TARGET NRICompatibilityMultiPresentation POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityMultiPresentation>"
+            VERBATIM)
+    endif()
     add_executable(NRICompatibilityPresentation presentation_win32.cpp)
     target_compile_features(NRICompatibilityPresentation PRIVATE cxx_std_17)
     set_target_properties(NRICompatibilityPresentation PROPERTIES CXX_EXTENSIONS OFF)

@@ -16,7 +16,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
-    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory", "nri_vulkan_inflight_resources"), default="nri_vulkan_buffer_baseline")
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory", "nri_vulkan_inflight_resources", "nri_vulkan_multi_presentation"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -121,6 +121,10 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.fixture == 'nri_vulkan_multi_presentation':
+                    expected = {'submitted_frames': 800, 'exact_frames': 800, 'resize_cycles': 100, 'retained_other_chain': 100, 'max_outstanding_slots': 6, 'slot_reuses': 497, 'queue_idle_checks': 52, 'device_idle_checks': 50}
+                    if any(receipt['fixture'].get(k) != v for k, v in expected.items()):
+                        raise ValueError('Multiframe/multiswapchain coverage incomplete')
                 if args.fixture == 'nri_vulkan_inflight_resources':
                     expected = {'submitted_jobs': 96, 'completed_jobs': 96, 'blocked_batches': 96, 'pending_checks': 474, 'max_pending': 3, 'pool_resets': 96, 'resource_generations': 96, 'retired_with_others_pending': 95}
                     if any(receipt['fixture'].get(k) != v for k, v in expected.items()):
@@ -255,7 +259,7 @@ def main():
                             raise ValueError('Shader input routes or shared module dependency were not qualified')
                 if args.require_present_retirement:
                     records = [json.loads(line.split('NRI_PRESENT_RETIREMENT ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_PRESENT_RETIREMENT ' in line]
-                    if args.fixture != 'nri_vulkan_presentation' or not records:
+                    if args.fixture not in ('nri_vulkan_presentation', 'nri_vulkan_multi_presentation') or not records:
                         raise ValueError('Presentation retirement was not observed')
                     for record in records:
                         if any(type(record.get(key)) is not int or record[key] < 0 for key in ('submitted', 'retired', 'pending', 'peak_fences')):
@@ -263,7 +267,7 @@ def main():
                         if record['retired'] + record['pending'] != record['submitted']:
                             raise ValueError('Unaccounted presentation payloads')
                     final = records[-1]
-                    if final['submitted'] != receipt['fixture']['exact_frames'] or final['pending'] != 0 or not 1 <= final['peak_fences'] <= 4:
+                    if final['submitted'] != receipt['fixture']['exact_frames'] or final['pending'] != 0 or not 1 <= final['peak_fences'] <= (8 if args.fixture == 'nri_vulkan_multi_presentation' else 4):
                         raise ValueError('Presentation payloads did not retire within the fixture bound')
                     receipt['presentation_retirement'] = final
                 if args.require_no_timeline and manifest['device']['timeline'] != 0:
@@ -284,6 +288,8 @@ def main():
                     require_individual_features(manifest)
                 if args.require_renderpass1 or args.require_renderpass2:
                     required = {'VK_KHR_timeline_semaphore', 'VK_EXT_host_query_reset'}
+                    if args.require_legacy_wsi:
+                        required.add('VK_KHR_swapchain')
                     if args.require_no_timeline:
                         required.remove('VK_KHR_timeline_semaphore')
                     if args.require_no_host_reset:

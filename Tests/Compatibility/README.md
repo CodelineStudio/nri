@@ -707,3 +707,33 @@ fixture requires the Slang toolchain and two graphics queues on the selected
 adapter, like the future-fence sequence fixture. That is a fixture requirement,
 not a new Vulkan/engine device-admission minimum. Single-queue hardware needs its
 own lifetime acceptance path; a masked modern device is not legacy hardware proof.
+
+### Multiple swapchains and frame-slot reuse
+
+On Windows, NRICompatibilityMultiPresentation uses two owned windows and one
+graphics queue. Each swapchain has three independent allocator/command/acquire/
+completion/readback slots and per-image present semaphores. Frames submit and
+present immediately; the CPU waits and checks the exact image only when reusing
+a slot or retiring its chain. No queue/device idle occurs between ordinary frames.
+
+The bounded workload submits 800 frames, reuses 497 slots, and resizes/recreates
+100 chains (50 per window), retaining the other chain each time. It alternates
+VSYNC and tearing requests, verifies resized extents and every pixel, and
+exercises 52 queue-idle and 50 device-idle retirements including cleanup. Its
+six outstanding slots count submitted work whose readback has not yet been
+verified; they do not assert six simultaneous GPU executions or incomplete fences.
+The separate in-flight fixture proves incomplete work behind future dependencies.
+This workload also tests resource reuse with only one requested graphics queue.
+
+Use --fixture nri_vulkan_multi_presentation. On a maintenance1 profile, add
+--require-present-retirement to require all 800 payloads retired, none pending,
+and at most eight tracked native fences (eight presents between retirements).
+On the baseline 1.1 profile, combine --require-renderpass1 --require-legacy-wsi
+with the no-timeline/no-host-reset flags: KHR_swapchain is the only enabled
+device extension. Without maintenance1, the existing idle-based teardown remains
+a platform qualification limitation, not equivalent portable retirement proof.
+
+Resizes are deliberate and occur after retirement. Unexpected surface loss fails
+this exact-accounting fixture; injected acquire/present loss and recovery remain
+covered by NRICompatibilityPresentation. This is desktop WSI evidence, not Android
+lifecycle coverage, a performance result, or a long-duration soak.
