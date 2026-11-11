@@ -430,3 +430,27 @@ fan-out by itself; the separate fence-sequence fixture covers the cases describe
 above. Real device loss and broader memory pressure remain pending. The manifest records actual NRI-created device
 configuration; it is never inferred from NRI's version or adapter name. Later fixtures must
 cover those cases and real older drivers before claiming compatibility support.
+
+### Atomic work generation and draw offsets
+
+The shader corpus now contains six entries. `indirect.slang` adds a single
+32-thread producer workgroup: storage-buffer atomic increments and a device-memory
+group barrier produce dispatch and both draw argument layouts. The consumer
+compute shader never writes the argument buffer while it is consumed. Explicit
+copy-to-storage, storage-to-indirect and indirect-to-readback barriers separate
+these uses. Each of eight cycles validates all 24 words, including untouched
+sentinels and a changing shared-module result, then checks the existing compute
+records and every output pixel. Dispatch arguments start at byte16; alternating
+nonindexed/indexed draws use byte32/64, first vertex1 and indexed first index2.
+Indirect first instance stays zero, and each call submits one draw: this baseline
+does not require `drawIndirectFirstInstance`, multi-draw or draw-count extensions.
+
+The eight graphics-state cases additionally use first index2, first instance1
+and signed base vertex+1/-1 with deliberately different prefix/suffix data. The
+same full-image oracle verifies vertex/instance fetch offsets, sampled textures,
+alpha blending, stencil/depth and MSAA together. This does not qualify shader
+`SV_VertexID`/`SV_InstanceID` or optional DrawParameters builtins. Native and
+extension-free Vulkan1.1 runs are required; masked hardware remains distinct
+from genuine older-device acceptance. The shared pipeline cache now contains
+19 pipelines; the API text/memory/module and persistent cache tests derive their
+entry counts from the current corpus.

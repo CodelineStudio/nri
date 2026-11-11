@@ -33,7 +33,7 @@ def main():
         return receipt
 
     for kind in ('text', 'memory', 'module'):
-        compile_run(kind + '-cold', kind, 5)
+        compile_run(kind + '-cold', kind, len(CORPUS))
         compile_run(kind + '-warm', kind, 0, forbid=True)
         for name, *_ in CORPUS:
             assert (output / (kind + '-warm') / (name + '.spv')).read_bytes() == (args.artifacts / (name + '.spv')).read_bytes()
@@ -48,7 +48,7 @@ def main():
     original = shared.read_bytes()
     assert b'0x85ebca6bu' in original
     shared.write_bytes(original.replace(b'0x85ebca6bu', b'0x85ebca6du'))
-    changed = compile_run('include-changed', 'text', 3)
+    changed = compile_run('include-changed', 'text', sum(file != 'graphics_state.slang' for _, file, _, _ in CORPUS))
     assert changed['entries']['compute']['binary_sha256'] != runs['text-cold']['entries']['compute']['binary_sha256']
     assert changed['entries']['state_vertex']['status'] == changed['entries']['state_fragment']['status'] == 'hit'
     shared.write_bytes(original)
@@ -67,7 +67,7 @@ def main():
 
     bounded = ArtifactCache(output / 'tiny-cache', max_entry_bytes=1)
     uncached = compile_cached(args.driver, args.validator, args.artifacts, copied_sources, output / 'capacity-fallback', bounded, 'text')
-    assert uncached['compiler_invocations'] == 5
+    assert uncached['compiler_invocations'] == len(CORPUS)
     assert all(entry['status'] == 'uncached_CacheCapacityError' for entry in uncached['entries'].values())
     runs['capacity-fallback'] = uncached
     held_root = output / 'busy-cache'
@@ -79,7 +79,7 @@ def main():
             time.sleep(0.01)
         assert (held_root / 'held').exists()
         uncached = compile_cached(args.driver, args.validator, args.artifacts, copied_sources, output / 'busy-fallback', busy, 'text')
-        assert uncached['compiler_invocations'] == 5
+        assert uncached['compiler_invocations'] == len(CORPUS)
         assert all(entry['status'] == 'uncached_TimeoutError' for entry in uncached['entries'].values())
         runs['busy-fallback'] = uncached
     finally:

@@ -82,7 +82,7 @@ struct StateCase {
             !Check(core.CreateFence(device, nri::FenceDesc{}, fence) == nri::Result::SUCCESS, "fence"))
             return false;
 
-        const uint64_t sizes[] = {uploadSlice, 4 * 4 * sizeof(float), 2 * 2 * sizeof(float), 6 * sizeof(uint16_t), readSlice};
+        const uint64_t sizes[] = {uploadSlice, 8 * 4 * sizeof(float), 3 * 2 * sizeof(float), 8 * sizeof(uint16_t), readSlice};
 
         for (uint32_t i = 0; i < buffers.size(); i++) {
             nri::BufferDesc desc = {};
@@ -97,9 +97,12 @@ struct StateCase {
                 return false;
         }
 
-        const float vertices[] = {-1, -1, 0, 1, 1, -1, 1, 1, -1, 1, 0, 0, 1, 1, 1, 0};
-        const float instances[] = {-0.5f, 1, 0.5f, -1};
-        const uint16_t indices[] = {0, 1, 2, 2, 1, 3};
+        // Prefix/suffix sentinels keep incorrect offsets in bounds and visibly wrong.
+        const float vertices[] = {9, 9, 0, 0, 9, 9, 0, 0, -1, -1, 0, 1, 1, -1, 1, 1, -1, 1, 0, 0, 1, 1, 1, 0, 9, 9, 0, 0, 9, 9, 0, 0};
+        const float instances[] = {9, 0, -0.5f, 1, 0.5f, -1};
+        const uint16_t positive[] = {1, 1, 1, 2, 3, 3, 2, 4};
+        const uint16_t negative[] = {1, 1, 3, 4, 5, 5, 4, 6};
+        const uint16_t* indices = premultiplied ? negative : positive;
         const void* mesh[] = {vertices, instances, indices};
 
         for (uint32_t i = 0; i < 4; i++) {
@@ -267,7 +270,7 @@ struct StateCase {
         constants.bindPoint = nri::BindPoint::GRAPHICS;
         core.CmdSetRootConstants(*command, constants);
         core.CmdSetStencilReference(*command, stencil, stencil);
-        core.CmdDrawIndexed(*command, {6, 2, 0, 0, 0});
+        core.CmdDrawIndexed(*command, {6, 2, 2, premultiplied ? -1 : 1, 1});
     }
 
     bool Execute(uint32_t& maxChannelError) {

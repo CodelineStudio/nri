@@ -43,13 +43,14 @@ struct Fixture {
     nri::DescriptorPool* pool = nullptr;
     nri::DescriptorSet* set = nullptr;
     nri::Pipeline* compute = nullptr;
+    nri::Pipeline* arguments = nullptr;
     nri::Pipeline* graphics = nullptr;
     PipelineCacheRun pipelineCache;
     nri::Texture* image = nullptr;
     nri::Descriptor* color = nullptr;
-    std::array<nri::Descriptor*, 2> descriptors{};
-    // Uniform upload, device storage, storage readback, image readback, vertices.
-    std::array<nri::Buffer*, 5> buffers{};
+    std::array<nri::Descriptor*, 3> descriptors{};
+    // Uniform, storage, storage readback, image readback, vertices, arguments, argument upload/readback, indices.
+    std::array<nri::Buffer*, 9> buffers{};
     uint32_t rowPitch = 0, slicePitch = 0;
     uint32_t completedCycles = 0, deviceId = 0, driver = 0;
     bool ready = false;
@@ -112,7 +113,7 @@ struct Fixture {
 
         rowPitch = ((256 + desc.memoryAlignment.uploadBufferTextureRow - 1) / desc.memoryAlignment.uploadBufferTextureRow) * desc.memoryAlignment.uploadBufferTextureRow;
         slicePitch = ((rowPitch * 64 + desc.memoryAlignment.uploadBufferTextureSlice - 1) / desc.memoryAlignment.uploadBufferTextureSlice) * desc.memoryAlignment.uploadBufferTextureSlice;
-        const uint64_t sizes[] = {sizeof(Parameters), 64 * 16, 64 * 16, slicePitch, 6 * 2 * sizeof(float)};
+        const uint64_t sizes[] = {sizeof(Parameters), 64 * 16, 64 * 16, slicePitch, 7 * 2 * sizeof(float), 96, 96, 96, 8 * sizeof(uint16_t)};
 
         for (uint32_t i = 0; i < buffers.size(); i++) {
             nri::BufferDesc buffer = {};
@@ -125,14 +126,19 @@ struct Fixture {
                 buffer.structureStride = 16;
             } else if (i == 4)
                 buffer.usage = nri::BufferUsageBits::VERTEX;
+            else if (i == 5) {
+                buffer.usage = nri::BufferUsageBits::SHADER_RESOURCE_STORAGE | nri::BufferUsageBits::ARGUMENT;
+                buffer.structureStride = sizeof(uint32_t);
+            } else if (i == 8)
+                buffer.usage = nri::BufferUsageBits::INDEX;
 
-            nri::MemoryLocation memory = (i == 0 || i == 4) ? nri::MemoryLocation::HOST_UPLOAD : (i == 1 ? nri::MemoryLocation::DEVICE : nri::MemoryLocation::HOST_READBACK);
+            nri::MemoryLocation memory = (i == 0 || i == 4 || i == 6 || i == 8) ? nri::MemoryLocation::HOST_UPLOAD : ((i == 1 || i == 5) ? nri::MemoryLocation::DEVICE : nri::MemoryLocation::HOST_READBACK);
 
             if (!Check(core.CreateCommittedBuffer(*device, memory, 0.0f, buffer, buffers[i]) == nri::Result::SUCCESS, "buffer"))
                 return false;
         }
 
-        const float vertices[] = {-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1};
+        const float vertices[] = {9, 9, -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1};
         void* mapped = core.MapBuffer(*buffers[4], 0, sizeof(vertices));
 
         if (!Check(mapped != nullptr, "vertex upload"))
@@ -140,6 +146,14 @@ struct Fixture {
 
         std::memcpy(mapped, vertices, sizeof(vertices));
         core.UnmapBuffer(*buffers[4]);
+        const uint16_t indices[] = {0, 0, 0, 1, 2, 3, 4, 5};
+        mapped = core.MapBuffer(*buffers[8], 0, sizeof(indices));
+
+        if (!Check(mapped != nullptr, "index upload"))
+            return false;
+
+        std::memcpy(mapped, indices, sizeof(indices));
+        core.UnmapBuffer(*buffers[8]);
         nri::TextureDesc texture = {};
         texture.type = nri::TextureType::TEXTURE_2D;
         texture.format = nri::Format::RGBA8_UNORM;
@@ -160,9 +174,9 @@ struct Fixture {
         if (!Check(core.CreateTextureView(view, color) == nri::Result::SUCCESS, "color view"))
             return false;
 
-        nri::DescriptorRangeDesc ranges[2] = {};
+        nri::DescriptorRangeDesc ranges[3] = {};
 
-        for (uint32_t i = 0; i < 2; i++) {
+        for (uint32_t i = 0; i < 3; i++) {
             ranges[i].baseRegisterIndex = i;
             ranges[i].descriptorNum = 1;
             ranges[i].descriptorType = i == 0 ? nri::DescriptorType::CONSTANT_BUFFER : nri::DescriptorType::STORAGE_STRUCTURED_BUFFER;
@@ -170,7 +184,7 @@ struct Fixture {
 
         nri::DescriptorSetDesc setDesc = {};
         setDesc.ranges = ranges;
-        setDesc.rangeNum = 2;
+        setDesc.rangeNum = 3;
         nri::PipelineLayoutDesc layoutDesc = {};
         layoutDesc.rootRegisterSpace = 1;
         layoutDesc.descriptorSets = &setDesc;
@@ -178,18 +192,20 @@ struct Fixture {
         layoutDesc.shaderStages = nri::StageBits::VERTEX_SHADER | nri::StageBits::FRAGMENT_SHADER | nri::StageBits::COMPUTE_SHADER;
         layoutDesc.flags = nri::PipelineLayoutBits::IGNORE_GLOBAL_SPIRV_OFFSETS;
         nri::DescriptorPoolDesc poolDesc = {};
-        poolDesc.descriptorSetMaxNum = poolDesc.constantBufferMaxNum = poolDesc.storageStructuredBufferMaxNum = 1;
+        poolDesc.descriptorSetMaxNum = poolDesc.constantBufferMaxNum = 1;
+        poolDesc.storageStructuredBufferMaxNum = 2;
 
         if (!Check(core.CreatePipelineLayout(*device, layoutDesc, layout) == nri::Result::SUCCESS, "pipeline layout") ||
             !Check(core.CreateDescriptorPool(*device, poolDesc, pool) == nri::Result::SUCCESS, "descriptor pool") ||
             !Check(core.AllocateDescriptorSets(*pool, *layout, 0, &set, 1, 0) == nri::Result::SUCCESS, "descriptor set"))
             return false;
 
-        for (uint32_t i = 0; i < 2; i++) {
+        for (uint32_t i = 0; i < 3; i++) {
             nri::BufferViewDesc bufferView = {};
-            bufferView.buffer = buffers[i];
+            uint32_t bufferIndex = i == 2 ? 5 : i;
+            bufferView.buffer = buffers[bufferIndex];
             bufferView.type = i == 0 ? nri::BufferView::CONSTANT_BUFFER : nri::BufferView::STORAGE_STRUCTURED_BUFFER;
-            bufferView.size = sizes[i];
+            bufferView.size = sizes[bufferIndex];
 
             if (!Check(core.CreateBufferView(bufferView, descriptors[i]) == nri::Result::SUCCESS, "buffer view"))
                 return false;
@@ -210,6 +226,11 @@ struct Fixture {
         auto pipelineBegin = std::chrono::steady_clock::now();
 
         if (!Check(core.CreateComputePipeline(*device, computeDesc, compute) == nri::Result::SUCCESS, "compute pipeline"))
+            return false;
+
+        computeDesc.shader = {nri::StageBits::COMPUTE_SHADER, shader_fixture::arguments, sizeof(shader_fixture::arguments), "argumentsMain"};
+
+        if (!Check(core.CreateComputePipeline(*device, computeDesc, arguments) == nri::Result::SUCCESS, "argument producer pipeline"))
             return false;
 
         nri::VertexAttributeDesc attribute = {};
@@ -257,6 +278,28 @@ struct Fixture {
 
         std::memcpy(mapped, &parameters, sizeof(parameters));
         core.UnmapBuffer(*buffers[0]);
+        std::array<uint32_t, 24> expectedArguments;
+        expectedArguments.fill(0xdeadbeefu);
+        expectedArguments[0] = 0;
+        mapped = core.MapBuffer(*buffers[6], 0, sizeof(expectedArguments));
+
+        if (!Check(mapped != nullptr, "argument initialization"))
+            return false;
+
+        std::memcpy(mapped, expectedArguments.data(), sizeof(expectedArguments));
+        core.UnmapBuffer(*buffers[6]);
+        expectedArguments[0] = 32;
+        expectedArguments[3] = ExpectedValue(0, parameters);
+        expectedArguments[4] = 2;
+        expectedArguments[5] = expectedArguments[6] = 1;
+        expectedArguments[8] = 6;
+        expectedArguments[9] = expectedArguments[10] = 1;
+        expectedArguments[11] = 0;
+        expectedArguments[16] = 6;
+        expectedArguments[17] = 1;
+        expectedArguments[18] = 2;
+        expectedArguments[19] = 1;
+        expectedArguments[20] = 0;
         core.ResetCommandAllocator(*allocator);
 
         if (!Check(core.BeginCommandBuffer(*command, pool) == nri::Result::SUCCESS, "begin commands"))
@@ -264,7 +307,7 @@ struct Fixture {
 
         nri::GlobalBarrierDesc host = {};
         host.before = {nri::AccessBits::HOST_WRITE, nri::StageBits::HOST};
-        host.after = {nri::AccessBits::CONSTANT_BUFFER | nri::AccessBits::VERTEX_BUFFER, nri::StageBits::ALL};
+        host.after = {nri::AccessBits::CONSTANT_BUFFER | nri::AccessBits::VERTEX_BUFFER | nri::AccessBits::INDEX_BUFFER | nri::AccessBits::COPY_SOURCE, nri::StageBits::ALL};
         nri::BufferBarrierDesc storage = {};
         storage.buffer = buffers[1];
         storage.before = {cycle ? nri::AccessBits::COPY_SOURCE : nri::AccessBits::NONE, cycle ? nri::StageBits::COPY : nri::StageBits::NONE};
@@ -280,8 +323,25 @@ struct Fixture {
         binding.descriptorSet = set;
         binding.bindPoint = nri::BindPoint::COMPUTE;
         core.CmdSetDescriptorSet(*command, binding);
+        nri::BufferBarrierDesc argumentBarrier = {};
+        argumentBarrier.buffer = buffers[5];
+        argumentBarrier.before = {cycle ? nri::AccessBits::COPY_SOURCE : nri::AccessBits::NONE, cycle ? nri::StageBits::COPY : nri::StageBits::NONE};
+        argumentBarrier.after = {nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY};
+        nri::BarrierDesc argumentBarriers = {};
+        argumentBarriers.buffers = &argumentBarrier;
+        argumentBarriers.bufferNum = 1;
+        core.CmdBarrier(*command, argumentBarriers);
+        core.CmdCopyBuffer(*command, *buffers[5], 0, *buffers[6], 0, sizeof(expectedArguments));
+        argumentBarrier.before = argumentBarrier.after;
+        argumentBarrier.after = {nri::AccessBits::SHADER_RESOURCE_STORAGE, nri::StageBits::COMPUTE_SHADER};
+        core.CmdBarrier(*command, argumentBarriers);
+        core.CmdSetPipeline(*command, *arguments);
+        core.CmdDispatch(*command, {1, 1, 1});
+        argumentBarrier.before = argumentBarrier.after;
+        argumentBarrier.after = {nri::AccessBits::ARGUMENT_BUFFER, nri::StageBits::INDIRECT};
+        core.CmdBarrier(*command, argumentBarriers);
         core.CmdSetPipeline(*command, *compute);
-        core.CmdDispatch(*command, {2, 1, 1});
+        core.CmdDispatchIndirect(*command, *buffers[5], 16);
 
         storage.before = storage.after;
         storage.after = {nri::AccessBits::SHADER_RESOURCE, nri::StageBits::FRAGMENT_SHADER};
@@ -313,13 +373,22 @@ struct Fixture {
         rendering.colors = &attachment;
         rendering.colorNum = 1;
         core.CmdBeginRendering(*command, rendering);
-        core.CmdDraw(*command, {6, 1, 0, 0});
+
+        if (cycle % 2) {
+            core.CmdSetIndexBuffer(*command, *buffers[8], 0, nri::IndexType::UINT16);
+            core.CmdDrawIndexedIndirect(*command, *buffers[5], 64, 1, sizeof(nri::DrawIndexedDesc), nullptr, 0);
+        } else
+            core.CmdDrawIndirect(*command, *buffers[5], 32, 1, sizeof(nri::DrawDesc), nullptr, 0);
         core.CmdEndRendering(*command);
         storage.before = storage.after;
         storage.after = {nri::AccessBits::COPY_SOURCE, nri::StageBits::COPY};
         transition.before = transition.after;
         transition.after = {nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE, nri::StageBits::COPY};
         core.CmdBarrier(*command, barriers);
+        argumentBarrier.before = argumentBarrier.after;
+        argumentBarrier.after = {nri::AccessBits::COPY_SOURCE, nri::StageBits::COPY};
+        core.CmdBarrier(*command, argumentBarriers);
+        core.CmdCopyBuffer(*command, *buffers[7], 0, *buffers[5], 0, sizeof(expectedArguments));
         core.CmdCopyBuffer(*command, *buffers[2], 0, *buffers[1], 0, 64 * 16);
         nri::TextureDataLayoutDesc data = {};
         data.rowPitch = rowPitch;
@@ -349,6 +418,17 @@ struct Fixture {
         core.Wait(*fence, cycle + 1);
 
         if (!Check(core.GetFenceValue(*fence) >= cycle + 1, "shader completion"))
+            return false;
+
+        const void* argumentValues = core.MapBuffer(*buffers[7], 0, sizeof(expectedArguments));
+
+        if (!Check(argumentValues != nullptr, "argument readback"))
+            return false;
+
+        bool argumentExact = std::memcmp(argumentValues, expectedArguments.data(), sizeof(expectedArguments)) == 0;
+        core.UnmapBuffer(*buffers[7]);
+
+        if (!Check(argumentExact, "atomic counter/generated arguments/untouched sentinels"))
             return false;
 
         const auto* values = (const uint32_t*)core.MapBuffer(*buffers[2], 0, 64 * 16);
@@ -418,6 +498,9 @@ struct Fixture {
 
             if (compute)
                 core.DestroyPipeline(compute);
+
+            if (arguments)
+                core.DestroyPipeline(arguments);
 
             if (graphics)
                 core.DestroyPipeline(graphics);
@@ -507,7 +590,7 @@ int main(int argc, char** argv) {
     passed = fixture.Cleanup() && passed && fixture.errors.load() == 0;
     const auto& cache = fixture.pipelineCache;
     std::printf("NRI_PIPELINE_CACHE {\"loaded_bytes\":%llu,\"saved_bytes\":%llu,\"rejected_headers\":%u,\"cache_control\":%s,\"hit_required\":%s,\"create_ms\":%.3f,\"pipeline_ms\":%.3f}\n", (unsigned long long)cache.loadedBytes, (unsigned long long)cache.savedBytes, cache.rejectedHeaders, cache.control ? "true" : "false", cache.requireHit ? "true" : "false", cache.createMilliseconds, cache.pipelineMilliseconds);
-    int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_shader_execution\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"graphics_state_cases\":%u,\"max_channel_error\":%u,\"legacy_sync_forced\":%s,\"shader_manifest\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.completedCycles, graphicsCases, maxChannelError, NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", shader_fixture::manifest);
+    int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_shader_execution\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"indirect_cycles\":%u,\"indexed_offset_cases\":%u,\"graphics_state_cases\":%u,\"max_channel_error\":%u,\"legacy_sync_forced\":%s,\"shader_manifest\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.completedCycles, fixture.completedCycles, graphicsCases, graphicsCases, maxChannelError, NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", shader_fixture::manifest);
 
     if (written < 0 || std::fflush(stdout) != 0)
         return 3;

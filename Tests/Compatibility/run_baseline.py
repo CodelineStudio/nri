@@ -92,7 +92,7 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
-                if args.fixture == 'nri_vulkan_shader_execution' and (receipt['fixture'].get('exact_cycles') != 8 or receipt['fixture'].get('graphics_state_cases') != 8 or receipt['fixture'].get('max_channel_error', 256) > 1):
+                if args.fixture == 'nri_vulkan_shader_execution' and (receipt['fixture'].get('exact_cycles') != 8 or receipt['fixture'].get('indirect_cycles') != 8 or receipt['fixture'].get('indexed_offset_cases') != 8 or receipt['fixture'].get('graphics_state_cases') != 8 or receipt['fixture'].get('max_channel_error', 256) > 1):
                     raise ValueError('Shader/graphics-state output checks did not pass')
                 if args.fixture == 'nri_vulkan_shader_execution':
                     records = [json.loads(line.split('NRI_PIPELINE_CACHE ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_PIPELINE_CACHE ')]
@@ -111,7 +111,7 @@ def main():
                 if args.require_shader_inputs:
                     inputs = receipt['fixture'].get('shader_manifest', {}).get('input_qualification', {})
                     entries = inputs.get('entries', {})
-                    if args.fixture != 'nri_vulkan_shader_execution' or inputs.get('embedded_input') != 'serialized_module' or set(entries) != {'compute', 'vertex', 'fragment', 'state_vertex', 'state_fragment'}:
+                    if args.fixture != 'nri_vulkan_shader_execution' or inputs.get('embedded_input') != 'serialized_module' or set(entries) != {'compute', 'arguments', 'vertex', 'fragment', 'state_vertex', 'state_fragment'}:
                         raise ValueError('Serialized shader input qualification is absent')
                     for name, entry in entries.items():
                         if entry.get('input_kinds') != ['text', 'memory', 'module'] or (not name.startswith('state_') and entry.get('module_reads', 0) < 1):
