@@ -308,6 +308,48 @@ This output contains RowMajor decoration even under the column-major option;
 the non-symmetric GPU transform test verifies the CPU memory contract, rather
 than inferring it from that decoration alone.
 
+### API text and serialized-module inputs
+
+Optionally configure `-DNRI_COMPATIBILITY_SLANG_SDK=<pinned-slang-package>` to
+build `NRICompatibilitySlangInputs` against the package's `slang::slang` CMake
+target (the actual Windows library is `slang-compiler.dll`). The corpus build
+then compares all five entries from the CLI, API disk text, API in-memory text
+and API serialized modules. Every route must produce byte-identical SPIR-V and
+matching static reflection layouts. CLI-only per-entry resource-liveness lists
+are excluded from the JSON comparison; identical target code establishes matching
+resource use. The serialized-module result is the one embedded in the GPU fixture.
+
+`common.slang` imports the reusable `shared_math` module. Entry points have explicit
+stage attributes so serialized multi-entry modules retain their intended entries.
+The deployed module loader uses an isolated filesystem that exposes only
+`.slang-module` files from the supplied directory. Original source paths stored
+in IR cannot be opened. The fixture records loaded/imported modules and denied
+file reads. In-memory text exercises the API route needed for generated inputs;
+it does not qualify a consumer's particle code generator.
+
+Run GPU qualification with `--require-shader-inputs` to reject stale executables
+that do not contain this input-route evidence. `input-runs.json` separates session
+initialization, load, serialization, link and codegen timings; these single cold
+process observations are not a shipping startup benchmark. `module-artifacts.json`
+records exact intermediate bytes separately from the deterministic target manifest.
+Relocated source paths can change the serialized module bytes even when every
+target binary is identical. Do not infer portable IR byte reproducibility from
+target determinism or place current checkout paths in target-cache lookup keys.
+
+Run `check_shader_inputs.py --driver <NRICompatibilitySlangInputs> --artifacts
+<build/shaders> --output <new-evidence-directory>` for module-only deployment,
+missing-import/corrupt-module/missing-entry rejection and, on Windows, isolated
+runtime-DLL packaging. Slang can return success while diagnosing a missing
+optimizer DLL; this qualification driver rejects all diagnostics. Its Windows
+package includes `slang-compiler.dll` and `slang-glslang.dll`, and the build checks
+both hashes against the pinned CLI package. Other platforms remain unqualified.
+
+Do not use `ISession::isBinaryModuleUpToDate` as the persistent compatibility key:
+the pinned API documents that compiler/option hashes are not compared when primary
+source is unavailable. A shipping module/cache manifest must enforce the consumer's
+compiler, options, dependencies, target capabilities and binding ABI separately.
+Persistent target/pipeline caches and production engine integration remain pending.
+
 This is transfer/synchronization and offscreen attachment qualification, not
 Vulkan 1.1 acceptance.
 The baseline does not exercise WSI, execute shaders, or prove future waits and

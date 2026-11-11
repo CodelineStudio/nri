@@ -1,5 +1,6 @@
 // Copyright (c) 2026 CodelineStudio
 // SPDX-License-Identifier: MIT
+import shared_math;
 struct Parameters {
     uint count;
     uint multiplier;
@@ -12,6 +13,5 @@ struct Parameters {
 
 uint transformValue(uint index) {
     uint value = index * parameters.multiplier + parameters.bias;
-    value ^= value >> 16;
-    return value * 0x85ebca6bu;
+    return mixValue(value);
 }

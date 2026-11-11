@@ -5,6 +5,7 @@
 groupshared uint neighbors[32];
 
 [numthreads(32, 1, 1)]
+[shader("compute")]
 void computeMain(uint3 dispatchId : SV_DispatchThreadID, uint3 localId : SV_GroupThreadID) {
     uint index = dispatchId.x;
     neighbors[localId.x] = transformValue(index);

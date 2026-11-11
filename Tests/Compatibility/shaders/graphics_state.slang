@@ -16,6 +16,7 @@ struct Varying {
     float2 uv : TEXCOORD0;
 };
 
+[shader("vertex")]
 Varying stateVertexMain(float2 position : POSITION, float2 uv : TEXCOORD0, float2 instanceData : TEXCOORD1) {
     Varying result;
     result.position = float4(position.x * 0.5 + instanceData.x, position.y, drawParameters.depth, 1);
@@ -23,6 +24,7 @@ Varying stateVertexMain(float2 position : POSITION, float2 uv : TEXCOORD0, float
     return result;
 }
 
+[shader("fragment")]
 float4 stateFragmentMain(Varying input) : SV_Target0 {
     if ((drawParameters.flags & 2) != 0)
         return float4(1, 0, 1, 1);

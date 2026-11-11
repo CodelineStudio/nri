@@ -142,6 +142,22 @@ endif()
 set(NRI_COMPATIBILITY_SLANGC "" CACHE FILEPATH "Pinned Slang compiler for shader execution qualification")
 set(NRI_COMPATIBILITY_SPIRV_VAL "" CACHE FILEPATH "Pinned spirv-val executable")
 set(NRI_COMPATIBILITY_SPIRV_DIS "" CACHE FILEPATH "Pinned spirv-dis executable")
+set(NRI_COMPATIBILITY_SLANG_SDK "" CACHE PATH "Optional pinned Slang SDK for API input qualification")
+if(NRI_COMPATIBILITY_SLANG_SDK)
+    find_package(slang CONFIG REQUIRED PATHS "${NRI_COMPATIBILITY_SLANG_SDK}/cmake" NO_DEFAULT_PATH)
+    add_executable(NRICompatibilitySlangInputs slang_inputs.cpp)
+    target_compile_features(NRICompatibilitySlangInputs PRIVATE cxx_std_17)
+    set_target_properties(NRICompatibilitySlangInputs PROPERTIES CXX_EXTENSIONS OFF)
+    target_link_libraries(NRICompatibilitySlangInputs PRIVATE slang::slang)
+    if(WIN32)
+        add_custom_target(NRICompatibilitySlangRuntime
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:NRICompatibilitySlangInputs>"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:slang::slang>" "$<TARGET_FILE_DIR:NRICompatibilitySlangInputs>"
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:slang::slang-glslang>" "$<TARGET_FILE_DIR:NRICompatibilitySlangInputs>"
+            VERBATIM)
+        add_dependencies(NRICompatibilitySlangInputs NRICompatibilitySlangRuntime)
+    endif()
+endif()
 if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_SPIRV_DIS)
     foreach(tool NRI_COMPATIBILITY_SLANGC NRI_COMPATIBILITY_SPIRV_VAL NRI_COMPATIBILITY_SPIRV_DIS)
         if(NOT EXISTS "${${tool}}")
@@ -150,6 +166,12 @@ if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_
     endforeach()
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     set(shader_output "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+    set(shader_input_arguments "")
+    set(shader_input_dependencies "")
+    if(TARGET NRICompatibilitySlangInputs)
+        list(APPEND shader_input_arguments --input-driver "$<TARGET_FILE:NRICompatibilitySlangInputs>")
+        list(APPEND shader_input_dependencies NRICompatibilitySlangInputs "$<TARGET_FILE:slang::slang>" "$<TARGET_FILE:slang::slang-glslang>")
+    endif()
     set(shader_runtime_dependencies "")
     if(WIN32)
         get_filename_component(slang_binary_dir "${NRI_COMPATIBILITY_SLANGC}" DIRECTORY)
@@ -162,10 +184,10 @@ if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_
     add_custom_command(OUTPUT "${shader_output}/compiled_shaders.h"
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/compile_shaders.py"
             --slangc "${NRI_COMPATIBILITY_SLANGC}" --spirv-val "${NRI_COMPATIBILITY_SPIRV_VAL}"
-            --spirv-dis "${NRI_COMPATIBILITY_SPIRV_DIS}" --output "${shader_output}"
-        DEPENDS compile_shaders.py shader_toolchain.json shaders/common.slang shaders/compute.slang shaders/draw.slang shaders/graphics_state.slang
+            --spirv-dis "${NRI_COMPATIBILITY_SPIRV_DIS}" --output "${shader_output}" ${shader_input_arguments}
+        DEPENDS compile_shaders.py shader_toolchain.json shaders/common.slang shaders/shared_math.slang shaders/compute.slang shaders/draw.slang shaders/graphics_state.slang
             "${NRI_COMPATIBILITY_SLANGC}" "${NRI_COMPATIBILITY_SPIRV_VAL}" "${NRI_COMPATIBILITY_SPIRV_DIS}"
-            ${shader_runtime_dependencies}
+            ${shader_runtime_dependencies} ${shader_input_dependencies}
         VERBATIM)
     add_executable(NRICompatibilityShaderExecution shader_execution.cpp graphics_state.cpp graphics_state.h "${shader_output}/compiled_shaders.h")
     target_compile_features(NRICompatibilityShaderExecution PRIVATE cxx_std_17)

@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--require-legacy-wsi", action="store_true")
     parser.add_argument("--require-legacy-surface", action="store_true")
     parser.add_argument("--require-present-retirement", action="store_true")
+    parser.add_argument("--require-shader-inputs", action="store_true")
     parser.add_argument("--require-individual-features", action="store_true")
     parser.add_argument("--require-basic-optionals", action="store_true")
     parser.add_argument("--require-renderpass1", action="store_true")
@@ -80,6 +81,14 @@ def main():
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
                 if args.fixture == 'nri_vulkan_shader_execution' and (receipt['fixture'].get('exact_cycles') != 8 or receipt['fixture'].get('graphics_state_cases') != 8 or receipt['fixture'].get('max_channel_error', 256) > 1):
                     raise ValueError('Shader/graphics-state output checks did not pass')
+                if args.require_shader_inputs:
+                    inputs = receipt['fixture'].get('shader_manifest', {}).get('input_qualification', {})
+                    entries = inputs.get('entries', {})
+                    if args.fixture != 'nri_vulkan_shader_execution' or inputs.get('embedded_input') != 'serialized_module' or set(entries) != {'compute', 'vertex', 'fragment', 'state_vertex', 'state_fragment'}:
+                        raise ValueError('Serialized shader input qualification is absent')
+                    for name, entry in entries.items():
+                        if entry.get('input_kinds') != ['text', 'memory', 'module'] or (not name.startswith('state_') and entry.get('module_reads', 0) < 1):
+                            raise ValueError('Shader input routes or shared module dependency were not qualified')
                 if args.require_present_retirement:
                     records = [json.loads(line.split('NRI_PRESENT_RETIREMENT ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_PRESENT_RETIREMENT ' in line]
                     if args.fixture != 'nri_vulkan_presentation' or not records:
