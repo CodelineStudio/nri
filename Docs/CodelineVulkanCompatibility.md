@@ -132,6 +132,15 @@ run `spirv-val --target-env vulkan1.1` and readback/pixel tests.
 
 ## Evidence and release
 
+The optional standalone Slang corpus now exercises actual graphics/compute shader
+execution with fixed descriptors, an 80-byte reflected uniform, non-symmetric
+matrix transforms, shared-memory barriers, integer storage results, vertex input,
+scissor and compute-to-fragment visibility. See Tests/Compatibility/README.md and
+shader_toolchain.json for compiler/validator pins and commands. Build validation
+requires SPIR-V1.3 under Vulkan1.1, then the GPU fixture checks all outputs.
+This does not qualify the production engine shaders, all graphics state, dynamic
+module compilation, persistent caches or real older hardware.
+
 For every fixture record source/dependency/compiler versions, platform, device,
 driver, loader/API version, features/extensions, selected paths, command,
 duration, output, timeout/errors and validation log. Separate implementation,

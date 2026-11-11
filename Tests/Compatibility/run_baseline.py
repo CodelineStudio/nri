@@ -15,7 +15,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
-    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation"), default="nri_vulkan_buffer_baseline")
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -117,7 +117,10 @@ def main():
                         required |= {'VK_KHR_create_renderpass2', 'VK_KHR_depth_stencil_resolve'}
                     if set(manifest['device']['extensions']) != required or manifest['device']['effective_minor'] != 1 or manifest['device']['dynamic_rendering'] != 0:
                         raise ValueError("Required legacy renderpass profile is not active")
-                    if not all(receipt['fixture'].get(key) for key in ('render_exact', 'input_attachment_exact', 'resolve_exact')):
+                    if args.fixture == 'nri_vulkan_shader_execution':
+                        if receipt['fixture'].get('exact_cycles') != 8:
+                            raise ValueError('Shader execution cycles did not pass')
+                    elif not all(receipt['fixture'].get(key) for key in ('render_exact', 'input_attachment_exact', 'resolve_exact')):
                         raise ValueError("Rendering pixel checks did not pass")
                 if args.require_basic_optionals:
                     fields = ('device_address', 'descriptor_indexing', 'draw_indirect_count', 'format_feature_flags2')

@@ -139,6 +139,50 @@ if(WIN32)
     endif()
 endif()
 
+set(NRI_COMPATIBILITY_SLANGC "" CACHE FILEPATH "Pinned Slang compiler for shader execution qualification")
+set(NRI_COMPATIBILITY_SPIRV_VAL "" CACHE FILEPATH "Pinned spirv-val executable")
+set(NRI_COMPATIBILITY_SPIRV_DIS "" CACHE FILEPATH "Pinned spirv-dis executable")
+if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_SPIRV_DIS)
+    foreach(tool NRI_COMPATIBILITY_SLANGC NRI_COMPATIBILITY_SPIRV_VAL NRI_COMPATIBILITY_SPIRV_DIS)
+        if(NOT EXISTS "${${tool}}")
+            message(FATAL_ERROR "Shader qualification requires ${tool}")
+        endif()
+    endforeach()
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    set(shader_output "${CMAKE_CURRENT_BINARY_DIR}/shaders")
+    set(shader_runtime_dependencies "")
+    if(WIN32)
+        get_filename_component(slang_binary_dir "${NRI_COMPATIBILITY_SLANGC}" DIRECTORY)
+        foreach(runtime gfx.dll slang-compiler.dll slang-glsl-module.dll slang-glslang.dll slang-llvm.dll slang-rt.dll slang.dll)
+            if(EXISTS "${slang_binary_dir}/${runtime}")
+                list(APPEND shader_runtime_dependencies "${slang_binary_dir}/${runtime}")
+            endif()
+        endforeach()
+    endif()
+    add_custom_command(OUTPUT "${shader_output}/compiled_shaders.h"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/compile_shaders.py"
+            --slangc "${NRI_COMPATIBILITY_SLANGC}" --spirv-val "${NRI_COMPATIBILITY_SPIRV_VAL}"
+            --spirv-dis "${NRI_COMPATIBILITY_SPIRV_DIS}" --output "${shader_output}"
+        DEPENDS compile_shaders.py shader_toolchain.json shaders/common.slang shaders/compute.slang shaders/draw.slang
+            "${NRI_COMPATIBILITY_SLANGC}" "${NRI_COMPATIBILITY_SPIRV_VAL}" "${NRI_COMPATIBILITY_SPIRV_DIS}"
+            ${shader_runtime_dependencies}
+        VERBATIM)
+    add_executable(NRICompatibilityShaderExecution shader_execution.cpp "${shader_output}/compiled_shaders.h")
+    target_compile_features(NRICompatibilityShaderExecution PRIVATE cxx_std_17)
+    set_target_properties(NRICompatibilityShaderExecution PROPERTIES CXX_EXTENSIONS OFF)
+    target_include_directories(NRICompatibilityShaderExecution PRIVATE "${shader_output}")
+    target_link_libraries(NRICompatibilityShaderExecution PRIVATE NRI)
+    target_compile_definitions(NRICompatibilityShaderExecution PRIVATE
+        NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+        NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+        NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
+    if(NOT NRI_STATIC_LIBRARY)
+        add_custom_command(TARGET NRICompatibilityShaderExecution POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityShaderExecution>"
+            VERBATIM)
+    endif()
+endif()
+
 if(NOT NRI_STATIC_LIBRARY)
     add_custom_command(TARGET NRICompatibilityQueryReset POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityQueryReset>"

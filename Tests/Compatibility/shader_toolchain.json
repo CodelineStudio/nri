@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "slang": {
+    "version": "2026.21",
+    "release": "https://github.com/shader-slang/slang/releases/tag/v2026.21",
+    "windows_x64_asset": "slang-2026.21-windows-x86_64.zip",
+    "asset_id": 707632302,
+    "sha256": "4b6f509e73397175ed36a341beb7ad15f4fff5feaf5f6d95fecf896c0d86b8de"
+  },
+  "spirv_tools": {
+    "repository": "https://github.com/KhronosGroup/SPIRV-Tools",
+    "commit": "b8c3b64b63758042576f6853d7f0abe9251460fa",
+    "source_archive_sha256": "de63c9d0b6a45322203a4f281b6b967ab1263fd27e0fb8e0db400f42ef2aef1f"
+  },
+  "spirv_headers": {
+    "repository": "https://github.com/KhronosGroup/SPIRV-Headers",
+    "commit": "86f980c731e62ae4eaf383d320449d71687936bf",
+    "source_archive_sha256": "d11ef011d0788ed002d7cc96224d298f43b126cabe887cd4d46199cb19ecf386"
+  },
+  "profile": "spirv_1_3",
+  "validation_environment": "vulkan1.1",
+  "note": "Standalone compatibility qualification pins, not yet a shipping compiler/package policy. Validator source revisions match this Slang release's submodules; receipts additionally record actual executable hashes."
+}

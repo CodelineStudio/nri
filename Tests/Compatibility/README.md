@@ -236,6 +236,55 @@ Without maintenance1, the idle convention is runtime evidence, not a portable
 presentation completion proof. Legacy platform qualification, real surface loss, minimization, Android lifecycle,
 multiple frames in flight and scanout inspection remain separate acceptance work.
 
+## Slang graphics and compute fixture
+
+`NRICompatibilityShaderExecution` executes a compiled compute shader followed by
+vertex/fragment shaders, for eight changing uniform inputs. It checks 64 uint4
+storage results per cycle (integer overflow, workgroup neighbor exchange/barrier,
+matrix transform and nonce) and all 4096 RGBA pixels (vertex input, off-center
+column-major transform, top-left viewport, scissor and compute-to-fragment reads).
+Both fixed descriptor bindings and the 80-byte uniform layout are checked against
+Slang reflection. This is a baseline corpus, not complete shader or graphics-state
+coverage: texture/sampler, blend/depth/stencil, shader MSAA, optional capabilities,
+production shader families, text/module packaging and caches still need tests.
+
+Pins are in `shader_toolchain.json`. Use the official Slang 2026.21 package and
+build `spirv-val`/`spirv-dis` from its recorded Khronos revisions. The Windows
+validator build uses `SPIRV-Headers_SOURCE_DIR`, `SPIRV_SKIP_TESTS=ON`, and Release
+targets `spirv-val spirv-dis`; no global SDK installation is required. Source
+archive checksums and actual tool/runtime hashes belong in the run evidence.
+Configure the standalone project with all three absolute paths:
+
+```
+-DNRI_COMPATIBILITY_SLANGC=<slangc>
+-DNRI_COMPATIBILITY_SPIRV_VAL=<spirv-val>
+-DNRI_COMPATIBILITY_SPIRV_DIS=<spirv-dis>
+```
+
+The build runs `compile_shaders.py`, emitting direct SPIR-V1.3, reflection JSON,
+disassembly, a tool/source/binary manifest and an embedded header in `shaders/`
+under the build directory. Every binary passes `spirv-val --target-env vulkan1.1`;
+the baseline allows only Shader/Matrix capabilities and no extension declarations.
+The executable embeds the manifest, including compiler/runtime hashes, so a GPU
+receipt identifies its actual shader bytes rather than whichever files exist later.
+Windows compiler DLLs are explicit build dependencies; other host tool/runtime
+packaging still requires qualification. This is build-time qualification, not the
+consumer's eventual persistent cache or mobile runtime compiler implementation.
+
+Run with `--fixture nri_vulkan_shader_execution` and the new executable. For the
+extension-free profile, configure API_MINOR=1, RENDERPASS1, NO_TIMELINE,
+NO_HOST_RESET and FORCE_LEGACY_SYNC. The runner accepts `--require-renderpass1`
+for this fixture and requires all eight exact cycles as well as the profile.
+
+The initial vertex-ID probe compiled valid Vulkan1.1 SPIR-V but was rejected by
+the stricter corpus capability check: Slang 2026.21 implements `SV_VertexID` using
+BaseVertex and adds optional DrawParameters. Ordinary vertex input avoids that
+extra requirement in this baseline. Do not blindly allow it during migration:
+qualify the device feature or select a verified alternative shader convention.
+This output contains RowMajor decoration even under the column-major option;
+the non-symmetric GPU transform test verifies the CPU memory contract, rather
+than inferring it from that decoration alone.
+
 This is transfer/synchronization and offscreen attachment qualification, not
 Vulkan 1.1 acceptance.
 The baseline does not exercise WSI, execute shaders, or prove future waits and
