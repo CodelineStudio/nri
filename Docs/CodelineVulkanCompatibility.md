@@ -3,10 +3,16 @@
 Status: partial implementation; full Vulkan 1.1 compatibility is not implemented
 or qualified yet. Legacy barrier, timestamp and queue-submission paths are
 implemented with native timeline semaphores; see `Tests/Compatibility` for the
-feature-disabled fixture. Device creation still requires Vulkan 1.2 or newer.
-Individual pre-1.2 feature/property queries and normalization are implemented and
-exercised by the test profile; version admission and the remaining optional
-dispatch/resource fallbacks must be completed before enabling Vulkan1.1 devices.
+feature-disabled fixture. Discovery and owned-device initialization now negotiate
+Vulkan1.1+, with individual feature/property structures and version/extension
+selected dispatch. Fixed descriptors, legacy format queries and subgroup/buffer
+limit normalization have basic-profile coverage on a modern device.
+
+**Temporary implementation prerequisites remain:** native timeline semaphores,
+host query reset, and either renderpass2 or dynamic rendering. Device creation
+reports these missing implementations explicitly. They must be removed through
+real fallbacks before the required no-timeline Vulkan1.1 baseline is complete.
+The modern GPU requesting API1.1 is not a real older-driver acceptance result.
 Baseline upstream: `a20efc8f7c6e4e6045acd6f29bf90b0d26ac3df5`.
 Fork branch: `codeline/vulkan-1.1`. Vulkan 1.0 and GLES are outside this work.
 

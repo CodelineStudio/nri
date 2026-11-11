@@ -22,7 +22,8 @@ def main():
     parser.add_argument("--require-native-validation", action="store_true")
     parser.add_argument("--require-legacy-sync", action="store_true")
     parser.add_argument("--require-individual-features", action="store_true")
-    parser.add_argument("--require-api-minor", type=int, choices=(2, 3, 4))
+    parser.add_argument("--require-basic-optionals", action="store_true")
+    parser.add_argument("--require-api-minor", type=int, choices=(1, 2, 3, 4))
     args = parser.parse_args()
     if not 0 < args.timeout <= 600 or args.adapter < 0:
         parser.error("timeout must be in (0,600] seconds and adapter must be nonnegative")
@@ -71,6 +72,13 @@ def main():
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
                 if args.require_individual_features:
                     require_individual_features(manifest)
+                if args.require_basic_optionals:
+                    fields = ('device_address', 'descriptor_indexing', 'draw_indirect_count', 'format_feature_flags2')
+                    if any(manifest['device'].get(key) != 0 for key in fields):
+                        raise ValueError("Required basic optional-feature profile is not active")
+                    forbidden = {'VK_KHR_buffer_device_address', 'VK_KHR_draw_indirect_count', 'VK_EXT_descriptor_indexing', 'VK_EXT_descriptor_heap', 'VK_EXT_mutable_descriptor_type', 'VK_KHR_shader_untyped_pointers', 'VK_KHR_format_feature_flags2', 'VK_EXT_host_image_copy', 'VK_KHR_maintenance4', 'VK_EXT_subgroup_size_control'}
+                    if forbidden.intersection(manifest['device']['extensions']):
+                        raise ValueError("Disabled optional extension was enabled")
                 if args.require_api_minor is not None and manifest['device']['effective_minor'] != args.require_api_minor:
                     raise ValueError("Required effective API minor version is not active")
                 if args.require_legacy_sync and (manifest["device"]["synchronization2"] != 0 or not receipt["fixture"].get("legacy_sync_forced")):

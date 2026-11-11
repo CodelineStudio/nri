@@ -106,6 +106,16 @@ struct IsSupported {
     uint32_t deviceAddress                : 1;
     uint32_t deviceFault                  : 1;
     uint32_t deviceFaultVendorBinary      : 1;
+    uint32_t timelineSemaphore            : 1;
+    uint32_t hostQueryReset               : 1;
+    uint32_t drawIndirectCount            : 1;
+    uint32_t renderPass2                  : 1;
+    uint32_t descriptorIndexing           : 1;
+    uint32_t formatFeatureFlags2          : 1;
+    uint32_t storageReadWithoutFormat     : 1;
+    uint32_t storageWriteWithoutFormat    : 1;
+    uint32_t extendedDynamicState         : 1;
+    uint32_t pushDescriptor               : 1;
     uint32_t synchronization2             : 1;
     uint32_t dynamicRendering             : 1;
     uint32_t storeOpNone                  : 1;
@@ -137,7 +147,7 @@ struct IsSupported {
     uint32_t imageView2DOn3D              : 1;
 };
 
-static_assert(sizeof(IsSupported) == sizeof(uint32_t), "4 bytes expected");
+static_assert(sizeof(IsSupported) == 2 * sizeof(uint32_t), "8 bytes expected");
 
 struct HostCopyLayoutVK {
     TextureDataLayoutDesc dataLayout;

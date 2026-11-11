@@ -10,6 +10,7 @@
 
 #include "DispatchTable.h"
 #include "LegacySynchronizationVK.h"
+#include "LegacyFormatVK.h"
 #include "SharedExternal.h"
 #include "VideoHelpersVK.h"
 

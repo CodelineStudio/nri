@@ -430,7 +430,7 @@ void PipelineLayoutVK::CreateSetLayout(VkDescriptorSetLayout* setLayout, const D
     bindingFlagsInfo.pBindingFlags = bindingFlags;
 
     VkDescriptorSetLayoutCreateInfo info = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-    info.pNext = &bindingFlagsInfo;
+    info.pNext = m_Device.m_IsSupported.descriptorIndexing ? (const void*)&bindingFlagsInfo : (deviceDesc.features.mutableDescriptorType ? (const void*)&mutableTypeInfo : nullptr);
     info.bindingCount = bindingNum;
     info.pBindings = bindings;
     info.flags = HasUpdateAfterSetRanges(descriptorSetDesc) ? VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT : 0;

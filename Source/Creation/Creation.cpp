@@ -360,7 +360,7 @@ static uint32_t GetVideoCodecNumVK(VkVideoCodecOperationFlagsKHR videoCodecOpera
 static void UpdateAdaptersVK(AdapterDesc* adapterDescs, uint32_t& adapterDescNum, VkPhysicalDevice precreatedPhysicalDevice) {
     // Variables first
     VkApplicationInfo applicationInfo = {};
-    applicationInfo.apiVersion = VK_API_VERSION_1_2; // 1.3 not needed here
+    applicationInfo.apiVersion = VK_API_VERSION_1_1; // Discovery uses core1.1 queries only
 
     VkInstanceCreateInfo instanceCreateInfo = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instanceCreateInfo.pApplicationInfo = &applicationInfo;

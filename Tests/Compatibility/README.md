@@ -8,6 +8,8 @@ also copies the pattern through mip 1 / array layer 1 of a texture, checks GPU
 timestamp ordering, signals/waits/queries fence values 1 through 3 (including
 queued waits, an empty submission and an older repeated wait), and waits for idle
 before teardown. Errors return nonzero.
+It also checks basic format/limit queries and creates a fixed descriptor layout,
+pool and set. These checks do not execute a shader or establish draw correctness.
 Callback messages go to stderr; stdout contains a JSON result.
 
 ## Build and run
@@ -69,15 +71,31 @@ These local aggregates are never linked into the individual query/create chains.
 `--require-individual-features` checks actual chain receipts for the required
 core1.1 structures, missing/duplicate records and forbidden aggregate structures.
 
-`-DNRI_COMPATIBILITY_API_MINOR=2` or `3` caps the test instance API; `0` (default)
+`-DNRI_COMPATIBILITY_API_MINOR=1`, `2` or `3` caps the test instance API; `0` (default)
 keeps native negotiation. The runner's `--require-api-minor` verifies the actual
 effective device API. These are independent controls: combine individual
 structures, API2 and forced legacy synchronization, then test all controls off
-for the modern regression. **Device admission is still Vulkan1.2+**; a capped
-modern device does not establish older-driver compatibility. The core-only
+for the modern regression. API1.1 naturally selects the individual structures,
+so `INDIVIDUAL_FEATURES` can stay OFF in that profile. A capped modern device does
+not establish older-driver compatibility. The core-only
 subgroupBroadcastDynamicId feature is disabled on the individual path, and
 framebufferIntegerColorSampleCounts remains unknown because it has no pre-1.2
 query equivalent. Format-specific image queries remain authoritative.
+
+`-DNRI_COMPATIBILITY_BASIC_OPTIONALS=ON` requires API1.1 and removes the address,
+descriptor indexing, indirect-count, descriptor heap, mutable descriptor,
+untyped-pointer, format-feature-flags2, host-image-copy, maintenance4 and subgroup
+size-control extensions before querying/enabling features. Use
+`--require-basic-optionals --require-api-minor 1 --require-individual-features`
+to check the actual manifest. Combine with FORCE_LEGACY_SYNC ON and
+`--require-legacy-sync`. Fixed descriptor creation omits unsupported binding-flag
+structures, unavailable optional entry points stay null, format queries use core
+properties2, and buffer/subgroup limits use their core1.1 fallback values.
+
+Temporary required capabilities are native timeline semaphores, host query reset
+and renderpass2 or dynamic rendering. Missing capabilities return UNSUPPORTED
+with a diagnostic identifying the unimplemented fallback. Full Vulkan1.1
+support requires these remaining implementations and actual legacy hardware.
 
 The legacy path merges barrier execution scopes, expands split scopes to their
 legacy equivalents, and uses conservative all-commands / memory-access scopes

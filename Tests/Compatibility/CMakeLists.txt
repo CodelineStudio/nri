@@ -11,14 +11,19 @@ if(NOT NRI_ENABLE_VK_SUPPORT)
     message(FATAL_ERROR "NRICompatibilityBaseline requires NRI_ENABLE_VK_SUPPORT")
 endif()
 
+option(NRI_COMPATIBILITY_BASIC_OPTIONALS "Disable address/indexing/indirect-count optional extensions on the Vulkan1.1 test profile" OFF)
+if(NRI_COMPATIBILITY_BASIC_OPTIONALS)
+    target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_BASIC_OPTIONALS=1)
+endif()
+
 option(NRI_COMPATIBILITY_INDIVIDUAL_FEATURES "Exercise pre-1.2 individual feature/property structures on the test device" OFF)
 if(NRI_COMPATIBILITY_INDIVIDUAL_FEATURES)
     target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_INDIVIDUAL_FEATURES=1)
 endif()
 
-set(NRI_COMPATIBILITY_API_MINOR 0 CACHE STRING "Test-only instance API ceiling: 0=native, 2=Vulkan1.2, 3=Vulkan1.3")
-if(NOT NRI_COMPATIBILITY_API_MINOR MATCHES "^(0|2|3)$")
-    message(FATAL_ERROR "The current device implementation only admits Vulkan1.2+: API_MINOR must be 0, 2 or 3")
+set(NRI_COMPATIBILITY_API_MINOR 0 CACHE STRING "Test-only instance API ceiling: 0=native, 1=Vulkan1.1, 2=Vulkan1.2, 3=Vulkan1.3")
+if(NOT NRI_COMPATIBILITY_API_MINOR MATCHES "^[0-3]$")
+    message(FATAL_ERROR "API_MINOR must be 0, 1, 2 or 3")
 endif()
 target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_API_MINOR=${NRI_COMPATIBILITY_API_MINOR})
 

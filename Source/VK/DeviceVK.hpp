@@ -611,6 +611,8 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
     APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME, desiredDeviceExts), VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME);
     APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, desiredDeviceExts), VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
 
+    APPEND_EXT(m_MinorVersion < 2 && !IsExtensionSupported(VK_KHR_SPIRV_1_4_EXTENSION_NAME, desiredDeviceExts), VK_KHR_SPIRV_1_4_EXTENSION_NAME);
+
     APPEND_EXT(m_MinorVersion < 3, VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME);
     APPEND_EXT(m_MinorVersion < 3, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     APPEND_EXT(m_MinorVersion < 3, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
@@ -834,11 +836,11 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
                 uint32_t majorVersion = VK_API_VERSION_MAJOR(props.properties.apiVersion);
                 m_MinorVersion = std::min(VK_API_VERSION_MINOR(props.properties.apiVersion), VK_API_VERSION_MINOR(m_InstanceVersion));
 
-                bool isSupported = (majorVersion * 10 + m_MinorVersion) >= 12;
+                bool isSupported = (majorVersion * 10 + m_MinorVersion) >= 11;
                 if (desc.adapterDesc) {
                     Uid_t uid = ConstructUid(idProps.deviceLUID, idProps.deviceUUID, idProps.deviceLUIDValid);
                     if (CompareUid(uid, desc.adapterDesc->uid)) {
-                        NRI_RETURN_ON_FAILURE(this, isSupported, Result::UNSUPPORTED, "Can't create a device: the specified physical device does not support Vulkan 1.2+!");
+                        NRI_RETURN_ON_FAILURE(this, isSupported, Result::UNSUPPORTED, "Can't create a device: the specified physical device does not support Vulkan 1.1+!");
                         break;
                     }
                 } else if (isSupported)
@@ -925,6 +927,30 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 
     if (!isWrapper)
         ProcessDeviceExtensions(desiredDeviceExts, desc.disableVKRayTracing, desc.deviceLostInfoLevel);
+
+#if NRI_COMPATIBILITY_BASIC_OPTIONALS
+    NRI_RETURN_ON_FAILURE(this, !isWrapper && m_MinorVersion == 1, Result::UNSUPPORTED, "Basic optional-feature fixture requires an NRI-created Vulkan1.1 profile");
+    const char* disabledExtensions[] = {
+        VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME,
+        VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME,
+        VK_EXT_DESCRIPTOR_HEAP_EXTENSION_NAME,
+        VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME,
+        VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME,
+        VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME,
+        VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME,
+        VK_KHR_MAINTENANCE_4_EXTENSION_NAME,
+        VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME,
+    };
+    desiredDeviceExts.erase(std::remove_if(desiredDeviceExts.begin(), desiredDeviceExts.end(), [&](const char* extension) {
+        for (const char* disabled : disabledExtensions) {
+            if (strcmp(extension, disabled) == 0)
+                return true;
+        }
+
+        return false;
+    }), desiredDeviceExts.end());
+#endif
 
     { // Video codec operations enabled on the device
         VkVideoCodecOperationFlagsKHR enabledDecodeCodecOperations = 0;
@@ -1191,6 +1217,16 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     Synchronization2Features.synchronization2 = VK_FALSE;
 #endif
 
+    m_IsSupported.timelineSemaphore = features12.timelineSemaphore;
+    m_IsSupported.hostQueryReset = features12.hostQueryReset;
+    m_IsSupported.formatFeatureFlags2 = m_MinorVersion >= 3 || IsExtensionSupported(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME, desiredDeviceExts);
+    m_IsSupported.storageReadWithoutFormat = features.features.shaderStorageImageReadWithoutFormat;
+    m_IsSupported.storageWriteWithoutFormat = features.features.shaderStorageImageWriteWithoutFormat;
+    m_IsSupported.drawIndirectCount = features12.drawIndirectCount;
+    m_IsSupported.renderPass2 = m_MinorVersion >= 2 || IsExtensionSupported(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, desiredDeviceExts);
+    m_IsSupported.descriptorIndexing = m_MinorVersion >= 2 || IsExtensionSupported(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, desiredDeviceExts);
+    m_IsSupported.extendedDynamicState = ExtendedDynamicStateFeatures.extendedDynamicState;
+    m_IsSupported.pushDescriptor = m_MinorVersion >= 4 ? features14.pushDescriptor : IsExtensionSupported(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, desiredDeviceExts);
     m_IsSupported.synchronization2 = features13.synchronization2;
     m_IsSupported.maintenance4 = features13.maintenance4;
     m_IsSupported.maintenance5 = features14.maintenance5;
@@ -1232,6 +1268,10 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 #endif
 
     m_IsMemoryZeroInitializationEnabled = desc.enableMemoryZeroInitialization && ZeroInitializeDeviceMemoryFeatures.zeroInitializeDeviceMemory;
+
+    NRI_RETURN_ON_FAILURE(this, m_IsSupported.timelineSemaphore, Result::UNSUPPORTED, "Native timeline semaphore support is currently required; legacy value-fence emulation is not implemented yet");
+    NRI_RETURN_ON_FAILURE(this, m_IsSupported.renderPass2 || m_IsSupported.dynamicRendering, Result::UNSUPPORTED, "Renderpass1 fallback is not implemented yet; renderpass2 or dynamic rendering is currently required");
+    NRI_RETURN_ON_FAILURE(this, m_IsSupported.hostQueryReset, Result::UNSUPPORTED, "Host query reset fallback is not implemented yet; hostQueryReset is currently required");
 
     if (!m_IsSupported.synchronization2)
         NRI_REPORT_INFO(this, "'synchronization2' is not supported, using legacy barriers and queue submission");
@@ -1286,8 +1326,8 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 #if NRI_COMPATIBILITY_DIAGNOSTICS
             VkPhysicalDeviceProperties2 observedProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
             m_VK.GetPhysicalDeviceProperties2(m_PhysicalDevice, &observedProperties);
-            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device\",\"physical_api\":%u,\"effective_minor\":%u,\"timeline\":%u,\"synchronization2\":%u,\"dynamic_rendering\":%u,\"extension_count\":%u}",
-                observedProperties.properties.apiVersion, m_MinorVersion, features12.timelineSemaphore, features13.synchronization2, features13.dynamicRendering, deviceCreateInfo.enabledExtensionCount);
+            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device\",\"physical_api\":%u,\"effective_minor\":%u,\"timeline\":%u,\"synchronization2\":%u,\"dynamic_rendering\":%u,\"device_address\":%u,\"descriptor_indexing\":%u,\"draw_indirect_count\":%u,\"format_feature_flags2\":%u,\"extension_count\":%u}",
+                observedProperties.properties.apiVersion, m_MinorVersion, features12.timelineSemaphore, features13.synchronization2, features13.dynamicRendering, m_IsSupported.deviceAddress, m_IsSupported.descriptorIndexing, m_IsSupported.drawIndirectCount, m_IsSupported.formatFeatureFlags2, deviceCreateInfo.enabledExtensionCount);
 
             for (const char* extension : desiredDeviceExts)
                 NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device_extension\",\"name\":\"%s\"}", extension);
@@ -1572,9 +1612,11 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
         m_DescriptorHeapProps.pNext = nullptr;
 
         if (m_MinorVersion < 3) {
-            props13.maxBufferSize = Maintenance4Props.maxBufferSize;
-            props13.minSubgroupSize = SubgroupSizeControlProps.minSubgroupSize;
-            props13.maxSubgroupSize = SubgroupSizeControlProps.minSubgroupSize;
+            // Pre-maintenance4 has no separate maxBufferSize query. The core1.1
+            // allocation bound is the available upper bound for our buffers.
+            props13.maxBufferSize = Maintenance4Props.maxBufferSize ? Maintenance4Props.maxBufferSize : propsExtra.maxMemoryAllocationSize;
+            props13.minSubgroupSize = SubgroupSizeControlProps.minSubgroupSize ? SubgroupSizeControlProps.minSubgroupSize : props11.subgroupSize;
+            props13.maxSubgroupSize = SubgroupSizeControlProps.maxSubgroupSize ? SubgroupSizeControlProps.maxSubgroupSize : props11.subgroupSize;
         }
 
         if (m_MinorVersion < 4) {
@@ -2434,7 +2476,8 @@ Result DeviceVK::CreateInstance(bool enableGraphicsAPIValidation, const Vector<c
     NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkEnumerateInstanceVersion");
 
     VkApplicationInfo appInfo = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
-    appInfo.apiVersion = std::clamp(instanceVersion, VK_API_VERSION_1_2, VK_API_VERSION_1_4);
+    NRI_RETURN_ON_FAILURE(this, instanceVersion >= VK_API_VERSION_1_1, Result::UNSUPPORTED, "Vulkan 1.1 or newer loader is required");
+    appInfo.apiVersion = std::min(instanceVersion, VK_API_VERSION_1_4);
 #if NRI_COMPATIBILITY_API_MINOR
     appInfo.apiVersion = std::min(appInfo.apiVersion, VK_MAKE_API_VERSION(0, 1, NRI_COMPATIBILITY_API_MINOR, 0));
 #endif
@@ -2574,6 +2617,15 @@ void DeviceVK::ReportMemoryTypes() {
         /* EXT (some extensions were promoted to core from EXT bypassing KHR status) */ \
         if (!m_VK.name) \
             m_VK.name = (PFN_vk##name)m_VK.GetDeviceProcAddr(m_Device, NRI_STRINGIFY(MERGE_TOKENS3(vk, name, EXT))); \
+    }
+
+// Resolve only the spelling legal for the negotiated core version. Callers
+// must first establish the relevant enabled extension/feature contract.
+#define GET_DEVICE_PROMOTED_FUNC(name, coreMinor, suffix) \
+    { \
+        const char* entryPoint = m_MinorVersion >= coreMinor ? "vk" #name : "vk" #name #suffix; \
+        m_VK.name = (PFN_vk##name)m_VK.GetDeviceProcAddr(m_Device, entryPoint); \
+        NRI_RETURN_ON_FAILURE(this, m_VK.name, Result::UNSUPPORTED, "Enabled Vulkan entry point '%s' is unavailable", entryPoint); \
     }
 
 #define GET_DEVICE_CORE_FUNC(name) \
@@ -2764,21 +2816,31 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
     GET_DEVICE_CORE_FUNC(GetBufferMemoryRequirements2);
     GET_DEVICE_CORE_FUNC(GetImageMemoryRequirements2);
 
-    // v1.2
-    GET_DEVICE_CORE_FUNC(CreateRenderPass2);
-    GET_DEVICE_CORE_FUNC(GetSemaphoreCounterValue);
-    GET_DEVICE_CORE_FUNC(WaitSemaphores);
-    GET_DEVICE_CORE_FUNC(ResetQueryPool);
-    GET_DEVICE_CORE_FUNC(GetBufferDeviceAddress);
-    GET_DEVICE_CORE_FUNC(CmdDrawIndirectCount);
-    GET_DEVICE_CORE_FUNC(CmdDrawIndexedIndirectCount);
+    // v1.2 or their explicitly enabled promoted extensions
+    if (m_IsSupported.renderPass2)
+        GET_DEVICE_PROMOTED_FUNC(CreateRenderPass2, 2, KHR);
+
+    if (m_IsSupported.timelineSemaphore) {
+        GET_DEVICE_PROMOTED_FUNC(GetSemaphoreCounterValue, 2, KHR);
+        GET_DEVICE_PROMOTED_FUNC(WaitSemaphores, 2, KHR);
+    }
+
+    if (m_IsSupported.hostQueryReset)
+        GET_DEVICE_PROMOTED_FUNC(ResetQueryPool, 2, EXT);
+
+    if (m_IsSupported.deviceAddress)
+        GET_DEVICE_PROMOTED_FUNC(GetBufferDeviceAddress, 2, KHR);
+
+    if (m_IsSupported.drawIndirectCount) {
+        GET_DEVICE_PROMOTED_FUNC(CmdDrawIndirectCount, 2, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdDrawIndexedIndirectCount, 2, KHR);
+    }
 
     // v1.3 or VK_KHR_synchronization2
     if (m_IsSupported.synchronization2) {
-        m_VK.QueueSubmit2 = (PFN_vkQueueSubmit2)m_VK.GetDeviceProcAddr(m_Device, m_MinorVersion >= 3 ? "vkQueueSubmit2" : "vkQueueSubmit2KHR");
-        m_VK.CmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2)m_VK.GetDeviceProcAddr(m_Device, m_MinorVersion >= 3 ? "vkCmdPipelineBarrier2" : "vkCmdPipelineBarrier2KHR");
-        m_VK.CmdWriteTimestamp2 = (PFN_vkCmdWriteTimestamp2)m_VK.GetDeviceProcAddr(m_Device, m_MinorVersion >= 3 ? "vkCmdWriteTimestamp2" : "vkCmdWriteTimestamp2KHR");
-        NRI_RETURN_ON_FAILURE(this, m_VK.QueueSubmit2 && m_VK.CmdPipelineBarrier2 && m_VK.CmdWriteTimestamp2, Result::UNSUPPORTED, "Enabled synchronization2 entry points are unavailable");
+        GET_DEVICE_PROMOTED_FUNC(QueueSubmit2, 3, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdPipelineBarrier2, 3, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdWriteTimestamp2, 3, KHR);
     }
 
     // These pointers stay null when synchronization2 was not enabled. Accidental
@@ -2788,38 +2850,54 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
     GET_DEVICE_CORE_FUNC(CmdWriteTimestamp);
 
     // v1.3 or VK_KHR_copy_commands2
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyBuffer2);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyImage2);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdResolveImage2);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyBufferToImage2);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyImageToBuffer2);
+    if (m_IsSupported.copyCommands2) {
+        GET_DEVICE_PROMOTED_FUNC(CmdCopyBuffer2, 3, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdCopyImage2, 3, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdResolveImage2, 3, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdCopyBufferToImage2, 3, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdCopyImageToBuffer2, 3, KHR);
+    }
 
     // v1.3 or VK_KHR_dynamic_rendering
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdBeginRendering);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdEndRendering);
+    if (m_IsSupported.dynamicRendering) {
+        GET_DEVICE_PROMOTED_FUNC(CmdBeginRendering, 3, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdEndRendering, 3, KHR);
+    }
 
     // v1.3 or VK_EXT_extended_dynamic_state
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdBindVertexBuffers2);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdSetViewportWithCount);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdSetScissorWithCount);
+    if (m_IsSupported.extendedDynamicState) {
+        GET_DEVICE_PROMOTED_FUNC(CmdBindVertexBuffers2, 3, EXT);
+        GET_DEVICE_PROMOTED_FUNC(CmdSetViewportWithCount, 3, EXT);
+        GET_DEVICE_PROMOTED_FUNC(CmdSetScissorWithCount, 3, EXT);
+    }
 
     // v1.3 or VK_KHR_maintenance4
-    GET_DEVICE_OPTIONAL_CORE_FUNC(GetDeviceBufferMemoryRequirements);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(GetDeviceImageMemoryRequirements);
+    if (m_IsSupported.maintenance4) {
+        GET_DEVICE_PROMOTED_FUNC(GetDeviceBufferMemoryRequirements, 3, KHR);
+        GET_DEVICE_PROMOTED_FUNC(GetDeviceImageMemoryRequirements, 3, KHR);
+    }
 
     // v1.4 or VK_KHR_push_descriptor
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdPushDescriptorSet);
+    if (m_IsSupported.pushDescriptor) {
+        GET_DEVICE_PROMOTED_FUNC(CmdPushDescriptorSet, 4, KHR);
+    }
 
     // v1.4 or VK_KHR_maintenance5
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdBindIndexBuffer2);
+    if (m_IsSupported.maintenance5) {
+        GET_DEVICE_PROMOTED_FUNC(CmdBindIndexBuffer2, 4, KHR);
+    }
 
     // v1.4 or VK_KHR_maintenance6
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdBindDescriptorSets2);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdPushConstants2);
+    if (m_IsSupported.maintenance6) {
+        GET_DEVICE_PROMOTED_FUNC(CmdBindDescriptorSets2, 4, KHR);
+        GET_DEVICE_PROMOTED_FUNC(CmdPushConstants2, 4, KHR);
+    }
 
     // v1.4 or VK_EXT_host_image_copy
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CopyMemoryToImage);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CopyImageToMemory);
+    if (m_IsSupported.hostImageCopy) {
+        GET_DEVICE_PROMOTED_FUNC(CopyMemoryToImage, 4, EXT);
+        GET_DEVICE_PROMOTED_FUNC(CopyImageToMemory, 4, EXT);
+    }
 
     if (IsExtensionSupported(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME, desiredDeviceExts))
         GET_DEVICE_FUNC(CmdSetFragmentShadingRateKHR);
@@ -2943,6 +3021,7 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
 
 #undef MERGE_TOKENS2
 #undef MERGE_TOKENS3
+#undef GET_DEVICE_PROMOTED_FUNC
 #undef GET_DEVICE_OPTIONAL_CORE_FUNC
 #undef GET_DEVICE_CORE_FUNC
 #undef GET_DEVICE_FUNC
@@ -4309,8 +4388,18 @@ NRI_INLINE FormatSupportBits DeviceVK::GetFormatSupport(Format format) const {
         return FormatSupportBits::UNSUPPORTED;
 
     VkFormatProperties3 props3 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3};
-    VkFormatProperties2 props2 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2, &props3};
+    VkFormatProperties2 props2 = {VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2};
+
+    if (m_IsSupported.formatFeatureFlags2)
+        props2.pNext = &props3;
+
     m_VK.GetPhysicalDeviceFormatProperties2(m_PhysicalDevice, vkFormat, &props2);
+
+    if (!m_IsSupported.formatFeatureFlags2) {
+        props3.linearTilingFeatures = GetLegacyFormatFeatures(vkFormat, props2.formatProperties.linearTilingFeatures, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT, m_IsSupported.storageReadWithoutFormat, m_IsSupported.storageWriteWithoutFormat);
+        props3.optimalTilingFeatures = GetLegacyFormatFeatures(vkFormat, props2.formatProperties.optimalTilingFeatures, VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT, m_IsSupported.storageReadWithoutFormat, m_IsSupported.storageWriteWithoutFormat);
+        props3.bufferFeatures = GetLegacyFormatFeatures(vkFormat, props2.formatProperties.bufferFeatures, VK_FORMAT_FEATURE_STORAGE_TEXEL_BUFFER_BIT, m_IsSupported.storageReadWithoutFormat, m_IsSupported.storageWriteWithoutFormat);
+    }
 
     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT, FormatSupportBits::TEXTURE);
     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT, FormatSupportBits::STORAGE_TEXTURE);

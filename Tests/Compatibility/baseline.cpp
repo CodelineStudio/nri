@@ -64,6 +64,8 @@ struct Fixture {
     nri::CommandAllocator* allocator = nullptr;
     nri::CommandBuffer* command = nullptr;
     nri::Fence* fence = nullptr;
+    nri::PipelineLayout* layout = nullptr;
+    nri::DescriptorPool* descriptorPool = nullptr;
     nri::Texture* texture = nullptr;
     nri::QueryPool* queries = nullptr;
     nri::Buffer* queryReadback = nullptr;
@@ -126,7 +128,44 @@ struct Fixture {
         coreReady = true;
         adapter = core.GetDeviceDesc(*device).adapterDesc;
 
+        const nri::DeviceDesc& capabilities = core.GetDeviceDesc(*device);
+
+        if (!capabilities.wave.laneMinNum || capabilities.wave.laneMaxNum < capabilities.wave.laneMinNum || capabilities.memory.bufferMaxSize < BYTE_COUNT) {
+            failure = "Invalid subgroup size or buffer allocation limits";
+
+            return false;
+        }
+
         if (!Check(core.GetQueue(*device, nri::QueueType::GRAPHICS, 0, queue), "GetQueue"))
+            return false;
+
+        const nri::FormatSupportBits rgbaSupport = core.GetFormatSupport(*device, nri::Format::RGBA8_UNORM);
+
+        if (!(rgbaSupport & nri::FormatSupportBits::TEXTURE) || !(rgbaSupport & nri::FormatSupportBits::COLOR_ATTACHMENT)) {
+            failure = "Required RGBA8 sampled/color-attachment format support is missing";
+
+            return false;
+        }
+
+        nri::DescriptorRangeDesc range = {};
+        range.descriptorNum = 1;
+        range.descriptorType = nri::DescriptorType::CONSTANT_BUFFER;
+        range.shaderStages = nri::StageBits::COMPUTE_SHADER;
+        nri::DescriptorSetDesc set = {};
+        set.ranges = &range;
+        set.rangeNum = 1;
+        nri::PipelineLayoutDesc layoutDesc = {};
+        layoutDesc.descriptorSets = &set;
+        layoutDesc.descriptorSetNum = 1;
+        layoutDesc.shaderStages = nri::StageBits::COMPUTE_SHADER;
+        nri::DescriptorPoolDesc poolDesc = {};
+        poolDesc.descriptorSetMaxNum = 1;
+        poolDesc.constantBufferMaxNum = 1;
+        nri::DescriptorSet* descriptorSet = nullptr;
+
+        if (!Check(core.CreatePipelineLayout(*device, layoutDesc, layout), "CreatePipelineLayout(fixed descriptor)") ||
+            !Check(core.CreateDescriptorPool(*device, poolDesc, descriptorPool), "CreateDescriptorPool") ||
+            !Check(core.AllocateDescriptorSets(*descriptorPool, *layout, 0, &descriptorSet, 1, 0), "AllocateDescriptorSets"))
             return false;
 
         nri::BufferDesc description = {};
@@ -374,6 +413,12 @@ struct Fixture {
 
             if (fence)
                 core.DestroyFence(fence);
+
+            if (descriptorPool)
+                core.DestroyDescriptorPool(descriptorPool);
+
+            if (layout)
+                core.DestroyPipelineLayout(layout);
 
             if (queries)
                 core.DestroyQueryPool(queries);

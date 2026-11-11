@@ -832,6 +832,7 @@ if(NRI_ENABLE_VK_SUPPORT)
         "Source/VK/QueueVK.hpp"
         "Source/VK/SharedVK.h"
         "Source/VK/LegacySynchronizationVK.h"
+        "Source/VK/LegacyFormatVK.h"
         "Source/VK/SwapChainVK.h"
         "Source/VK/SwapChainVK.hpp"
         "Source/VK/TextureVK.h"
