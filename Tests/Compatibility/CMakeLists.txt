@@ -96,6 +96,10 @@ FetchContent_GetProperties(vulkan_headers SOURCE_DIR vulkan_headers_SOURCE_DIR)
 target_include_directories(NRICompatibilityQueryReset PRIVATE "${vulkan_headers_SOURCE_DIR}/include")
 target_include_directories(NRILegacySynchronizationTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../Source/VK" "${vulkan_headers_SOURCE_DIR}/include")
 add_test(NAME NRILegacySynchronizationTests COMMAND NRILegacySynchronizationTests)
+add_executable(NRIPipelineCacheHeaderTests pipeline_cache_header.cpp)
+target_compile_features(NRIPipelineCacheHeaderTests PRIVATE cxx_std_17)
+target_include_directories(NRIPipelineCacheHeaderTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../Source/VK" "${vulkan_headers_SOURCE_DIR}/include")
+add_test(NAME NRIPipelineCacheHeaderTests COMMAND NRIPipelineCacheHeaderTests)
 # Test-only provenance: emit what NRI actually enabled, not a second probe device.
 target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_DIAGNOSTICS=1)
 target_compile_features(NRICompatibilityBaseline PRIVATE cxx_std_17)
@@ -189,7 +193,7 @@ if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_
             "${NRI_COMPATIBILITY_SLANGC}" "${NRI_COMPATIBILITY_SPIRV_VAL}" "${NRI_COMPATIBILITY_SPIRV_DIS}"
             ${shader_runtime_dependencies} ${shader_input_dependencies}
         VERBATIM)
-    add_executable(NRICompatibilityShaderExecution shader_execution.cpp graphics_state.cpp graphics_state.h "${shader_output}/compiled_shaders.h")
+    add_executable(NRICompatibilityShaderExecution shader_execution.cpp graphics_state.cpp graphics_state.h pipeline_cache_io.cpp pipeline_cache_io.h "${shader_output}/compiled_shaders.h")
     target_compile_features(NRICompatibilityShaderExecution PRIVATE cxx_std_17)
     set_target_properties(NRICompatibilityShaderExecution PROPERTIES CXX_EXTENSIONS OFF)
     target_include_directories(NRICompatibilityShaderExecution PRIVATE "${shader_output}")

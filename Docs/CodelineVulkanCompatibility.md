@@ -144,6 +144,14 @@ requires SPIR-V1.3 under Vulkan1.1, then the GPU fixture checks all outputs.
 This does not qualify the production engine shaders, all graphics state, dynamic
 module compilation, persistent caches or real older hardware.
 
+Pipeline cache loading checks Vulkan's packed little-endian version1 header and
+native vendor/device/cache UUID before creation. It returns OUT_OF_DATE on an
+incompatible header instead of guessing from the driver's reserialized size.
+Consumers remain responsible for payload checksums and complete persistent cache
+metadata. Standalone cross-process shader-cache tests exercise serialization,
+reload, header rejection and optional FAIL_ON_CACHE_MISS pipeline creation; these
+raw fixture artifacts are not the consumer's finished persistent cache service.
+
 For every fixture record source/dependency/compiler versions, platform, device,
 driver, loader/API version, features/extensions, selected paths, command,
 duration, output, timeout/errors and validation log. Separate implementation,

@@ -822,6 +822,7 @@ if(NRI_ENABLE_VK_SUPPORT)
         "Source/VK/MicromapVK.h"
         "Source/VK/MicromapVK.hpp"
         "Source/VK/PipelineCacheVK.h"
+        "Source/VK/PipelineCacheHeaderVK.h"
         "Source/VK/PipelineCacheVK.hpp"
         "Source/VK/PipelineLayoutVK.h"
         "Source/VK/PipelineLayoutVK.hpp"

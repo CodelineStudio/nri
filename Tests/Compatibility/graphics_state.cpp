@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -41,6 +42,7 @@ struct StateCase {
     nri::Device& device;
     const nri::CoreInterface& core;
     nri::Queue& queue;
+    PipelineCacheRun& cache;
     uint8_t samples;
     bool linear, premultiplied;
     nri::CommandAllocator* allocator = nullptr;
@@ -228,6 +230,8 @@ struct StateCase {
             color.alphaBlend = {nri::BlendFactor::ONE, nri::BlendFactor::ONE_MINUS_SRC_ALPHA, nri::BlendOp::ADD};
             nri::GraphicsPipelineDesc desc = {};
             desc.pipelineLayout = layout;
+            desc.cache = cache.cache;
+            desc.flags = cache.requireHit ? nri::GraphicsPipelineBits::FAIL_ON_CACHE_MISS : nri::GraphicsPipelineBits::NONE;
             desc.vertexInput = &input;
             desc.inputAssembly.topology = nri::Topology::TRIANGLE_LIST;
             desc.multisample = &multisample;
@@ -244,7 +248,11 @@ struct StateCase {
             stencil.compareMask = stencil.writeMask = 255;
             desc.outputMerger.stencil.back = stencil;
 
-            if (!Check(core.CreateGraphicsPipeline(device, desc, pipelines[i]) == nri::Result::SUCCESS, "pipeline"))
+            auto begin = std::chrono::steady_clock::now();
+            auto result = core.CreateGraphicsPipeline(device, desc, pipelines[i]);
+            cache.pipelineMilliseconds += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+
+            if (!Check(result == nri::Result::SUCCESS, "pipeline"))
                 return false;
         }
 
@@ -459,9 +467,9 @@ struct StateCase {
 
 } // namespace
 
-bool RunGraphicsStates(nri::Device& device, const nri::CoreInterface& core, nri::Queue& queue, const std::atomic<uint32_t>& errors, uint32_t& completedCases, uint32_t& maxChannelError) {
+bool RunGraphicsStates(nri::Device& device, const nri::CoreInterface& core, nri::Queue& queue, const std::atomic<uint32_t>& errors, PipelineCacheRun& cache, uint32_t& completedCases, uint32_t& maxChannelError) {
     for (uint32_t i = 0; i < 8; i++) {
-        StateCase state{device, core, queue, uint8_t((i & 4) ? 4 : 1), (i & 2) != 0, (i & 1) != 0};
+        StateCase state{device, core, queue, cache, uint8_t((i & 4) ? 4 : 1), (i & 2) != 0, (i & 1) != 0};
         bool passed = state.Initialize() && state.Execute(maxChannelError);
         passed = state.Cleanup() && passed && errors.load() == 0;
 

@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import platform
 import subprocess
+import struct
 import sys
 import time
 from capability_manifest import parse_manifest, require_individual_features
@@ -28,12 +29,17 @@ def main():
     parser.add_argument("--require-legacy-surface", action="store_true")
     parser.add_argument("--require-present-retirement", action="store_true")
     parser.add_argument("--require-shader-inputs", action="store_true")
+    parser.add_argument("--cache-input", type=Path)
+    parser.add_argument("--cache-output", type=Path)
+    parser.add_argument("--require-pipeline-cache-hit", action="store_true")
     parser.add_argument("--require-individual-features", action="store_true")
     parser.add_argument("--require-basic-optionals", action="store_true")
     parser.add_argument("--require-renderpass1", action="store_true")
     parser.add_argument("--require-renderpass2", action="store_true")
     parser.add_argument("--require-api-minor", type=int, choices=(1, 2, 3, 4))
     args = parser.parse_args()
+    if (args.cache_input or args.cache_output or args.require_pipeline_cache_hit) and args.fixture != 'nri_vulkan_shader_execution':
+        parser.error('Pipeline cache arguments require the shader fixture')
     if not 0 < args.timeout <= 600 or args.adapter < 0:
         parser.error("timeout must be in (0,600] seconds and adapter must be nonnegative")
     exe = args.exe.resolve(strict=True)
@@ -41,6 +47,13 @@ def main():
     command = [str(exe), "--adapter", str(args.adapter)]
     if args.validation or args.require_native_validation:
         command.append("--validation")
+    if args.cache_input:
+        command += ['--cache-input', str(args.cache_input.resolve(strict=True))]
+    if args.cache_output:
+        args.cache_output.parent.mkdir(parents=True, exist_ok=True)
+        command += ['--cache-output', str(args.cache_output.resolve())]
+    if args.require_pipeline_cache_hit:
+        command.append('--cache-hit-only')
     started = time.monotonic()
     receipt = {
         "schema_version": 1,
@@ -81,6 +94,20 @@ def main():
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
                 if args.fixture == 'nri_vulkan_shader_execution' and (receipt['fixture'].get('exact_cycles') != 8 or receipt['fixture'].get('graphics_state_cases') != 8 or receipt['fixture'].get('max_channel_error', 256) > 1):
                     raise ValueError('Shader/graphics-state output checks did not pass')
+                if args.fixture == 'nri_vulkan_shader_execution':
+                    records = [json.loads(line.split('NRI_PIPELINE_CACHE ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_PIPELINE_CACHE ')]
+                    if len(records) != 1 or records[0].get('rejected_headers') != 7 or records[0].get('saved_bytes', 0) < 32:
+                        raise ValueError('Pipeline cache serialization/rejection checks did not pass')
+                    cache = receipt['pipeline_cache'] = records[0]
+                    if args.require_pipeline_cache_hit and (not cache.get('cache_control') or not cache.get('hit_required') or cache.get('loaded_bytes', 0) < 32):
+                        raise ValueError('Loaded cache without no-compilation pipeline qualification')
+                    for label, path in [('input', args.cache_input), ('output', args.cache_output)]:
+                        if path:
+                            data = path.read_bytes()
+                            if len(data) != cache['loaded_bytes' if label == 'input' else 'saved_bytes'] or len(data) < 32:
+                                raise ValueError('Cache artifact size differs from native receipt')
+                            size, version, vendor, device = struct.unpack_from('<4I', data)
+                            cache[label] = {'sha256': hashlib.sha256(data).hexdigest(), 'header_size': size, 'header_version': version, 'vendor_id': vendor, 'device_id': device, 'pipeline_cache_uuid': data[16:32].hex()}
                 if args.require_shader_inputs:
                     inputs = receipt['fixture'].get('shader_manifest', {}).get('input_qualification', {})
                     entries = inputs.get('entries', {})

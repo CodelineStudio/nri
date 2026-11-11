@@ -350,6 +350,35 @@ source is unavailable. A shipping module/cache manifest must enforce the consume
 compiler, options, dependencies, target capabilities and binding ABI separately.
 Persistent target/pipeline caches and production engine integration remain pending.
 
+### Driver pipeline cache round trips
+
+The shader fixture now shares one NRI pipeline cache across its compute pipeline
+and 17 graphics pipeline creations. `run_baseline.py --cache-output <file>` saves
+a raw driver artifact after execution; a subsequent process can load it with
+`--cache-input <file>`. The receipt records exact bytes/hash, native vendor/device/
+cache UUID, cache creation time and aggregate CPU pipeline creation time.
+`--require-pipeline-cache-hit` requests FAIL_ON_CACHE_MISS on every creation and
+requires enabled pipelineCacheControl. It is intentionally unavailable in the
+extension-free Vulkan1.1 profile. Legacy reload still verifies native data
+acceptance and identical GPU output; it does not prove that compilation was skipped.
+Native success proves no compilation was required, but driver-internal caches may
+also contribute, so do not attribute every hit exclusively to the supplied blob.
+
+NRI now checks the defined 32-byte little-endian Vulkan cache header against the
+physical device before native creation, returning OUT_OF_DATE for unsupported
+header versions, malformed/truncated headers or mismatched vendor/device/UUID.
+The prior output-size heuristic could miss incompatible headers or misclassify
+driver-compacted compatible data. The fixture verifies seven header rejections
+without passing those fabricated headers to Vulkan; NRIPipelineCacheHeaderTests
+also checks every truncated header size and unaligned input.
+
+Header compatibility is not opaque-payload integrity. These CLI files are trusted
+raw test artifacts, not a finished persistent cache. A consumer must verify its
+own checksum and compiler/shader/pipeline/profile/driver metadata, then publish
+atomically with storage bounds and concurrent writer handling. Corrupt payloads
+must never be passed to the driver merely because their header matches.
+One cold/reload pair is correctness evidence, not a performance benchmark.
+
 This is transfer/synchronization and offscreen attachment qualification, not
 Vulkan 1.1 acceptance.
 The baseline does not exercise WSI, execute shaders, or prove future waits and

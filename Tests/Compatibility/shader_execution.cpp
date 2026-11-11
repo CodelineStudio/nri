@@ -4,10 +4,12 @@
 #include "Extensions/NRIDeviceCreation.h"
 #include "compiled_shaders.h"
 #include "graphics_state.h"
+#include "pipeline_cache_io.h"
 
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -42,6 +44,7 @@ struct Fixture {
     nri::DescriptorSet* set = nullptr;
     nri::Pipeline* compute = nullptr;
     nri::Pipeline* graphics = nullptr;
+    PipelineCacheRun pipelineCache;
     nri::Texture* image = nullptr;
     nri::Descriptor* color = nullptr;
     std::array<nri::Descriptor*, 2> descriptors{};
@@ -71,7 +74,7 @@ struct Fixture {
         return condition;
     }
 
-    bool Initialize(bool validation, uint32_t adapterIndex) {
+    bool Initialize(bool validation, uint32_t adapterIndex, const char* cacheInput, bool requireCacheHit) {
         uint32_t count = 0;
 
         if (!Check(nri::nriEnumerateAdapters(nullptr, count, nri::GraphicsAPI::VK) == nri::Result::SUCCESS && adapterIndex < count, "enumerate adapters"))
@@ -97,6 +100,9 @@ struct Fixture {
         const auto& desc = core.GetDeviceDesc(*device);
         deviceId = desc.adapterDesc.deviceId;
         driver = desc.adapterDesc.driverVersion;
+
+        if (!LoadPipelineCache(*device, core, cacheInput, requireCacheHit, pipelineCache))
+            return false;
 
         if (!Check(core.GetQueue(*device, nri::QueueType::GRAPHICS, 0, queue) == nri::Result::SUCCESS, "graphics queue") ||
             !Check(core.CreateCommandAllocator(*queue, allocator) == nri::Result::SUCCESS, "allocator") ||
@@ -199,6 +205,9 @@ struct Fixture {
         nri::ComputePipelineDesc computeDesc = {};
         computeDesc.pipelineLayout = layout;
         computeDesc.shader = {nri::StageBits::COMPUTE_SHADER, shader_fixture::compute, sizeof(shader_fixture::compute), "computeMain"};
+        computeDesc.cache = pipelineCache.cache;
+        computeDesc.flags = pipelineCache.requireHit ? nri::ComputePipelineBits::FAIL_ON_CACHE_MISS : nri::ComputePipelineBits::NONE;
+        auto pipelineBegin = std::chrono::steady_clock::now();
 
         if (!Check(core.CreateComputePipeline(*device, computeDesc, compute) == nri::Result::SUCCESS, "compute pipeline"))
             return false;
@@ -227,8 +236,12 @@ struct Fixture {
         graphicsDesc.outputMerger.colorNum = 1;
         graphicsDesc.shaders = shaders;
         graphicsDesc.shaderNum = 2;
+        graphicsDesc.cache = pipelineCache.cache;
+        graphicsDesc.flags = pipelineCache.requireHit ? nri::GraphicsPipelineBits::FAIL_ON_CACHE_MISS : nri::GraphicsPipelineBits::NONE;
+        bool pipelinesCreated = Check(core.CreateGraphicsPipeline(*device, graphicsDesc, graphics) == nri::Result::SUCCESS, "graphics pipeline");
+        pipelineCache.pipelineMilliseconds += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - pipelineBegin).count();
 
-        return Check(core.CreateGraphicsPipeline(*device, graphicsDesc, graphics) == nri::Result::SUCCESS, "graphics pipeline");
+        return pipelinesCreated;
     }
 
     bool Execute(uint32_t cycle) {
@@ -409,6 +422,9 @@ struct Fixture {
             if (graphics)
                 core.DestroyPipeline(graphics);
 
+            if (pipelineCache.cache)
+                core.DestroyPipelineCache(pipelineCache.cache);
+
             if (pool)
                 core.DestroyDescriptorPool(pool);
 
@@ -447,10 +463,19 @@ struct Fixture {
 int main(int argc, char** argv) {
     bool validation = false;
     uint32_t adapter = 0;
+    const char* cacheInput = nullptr;
+    const char* cacheOutput = nullptr;
+    bool requireCacheHit = false;
 
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "--validation") == 0)
             validation = true;
+        else if (std::strcmp(argv[i], "--cache-input") == 0 && (i + 1) < argc)
+            cacheInput = argv[++i];
+        else if (std::strcmp(argv[i], "--cache-output") == 0 && (i + 1) < argc)
+            cacheOutput = argv[++i];
+        else if (std::strcmp(argv[i], "--cache-hit-only") == 0)
+            requireCacheHit = true;
         else if (std::strcmp(argv[i], "--adapter") == 0 && (i + 1) < argc) {
             char* end = nullptr;
             const char* value = argv[++i];
@@ -466,7 +491,7 @@ int main(int argc, char** argv) {
     }
 
     Fixture fixture;
-    bool passed = fixture.Initialize(validation, adapter);
+    bool passed = fixture.Initialize(validation, adapter, cacheInput, requireCacheHit);
 
     for (uint32_t cycle = 0; cycle < 8 && passed; cycle++)
         passed = fixture.Execute(cycle);
@@ -474,9 +499,14 @@ int main(int argc, char** argv) {
     uint32_t graphicsCases = 0, maxChannelError = 0;
 
     if (passed)
-        passed = RunGraphicsStates(*fixture.device, fixture.core, *fixture.queue, fixture.errors, graphicsCases, maxChannelError);
+        passed = RunGraphicsStates(*fixture.device, fixture.core, *fixture.queue, fixture.errors, fixture.pipelineCache, graphicsCases, maxChannelError);
+
+    if (passed)
+        passed = SavePipelineCache(*fixture.device, fixture.core, cacheOutput, fixture.pipelineCache);
 
     passed = fixture.Cleanup() && passed && fixture.errors.load() == 0;
+    const auto& cache = fixture.pipelineCache;
+    std::printf("NRI_PIPELINE_CACHE {\"loaded_bytes\":%llu,\"saved_bytes\":%llu,\"rejected_headers\":%u,\"cache_control\":%s,\"hit_required\":%s,\"create_ms\":%.3f,\"pipeline_ms\":%.3f}\n", (unsigned long long)cache.loadedBytes, (unsigned long long)cache.savedBytes, cache.rejectedHeaders, cache.control ? "true" : "false", cache.requireHit ? "true" : "false", cache.createMilliseconds, cache.pipelineMilliseconds);
     int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_shader_execution\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"graphics_state_cases\":%u,\"max_channel_error\":%u,\"legacy_sync_forced\":%s,\"shader_manifest\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.completedCycles, graphicsCases, maxChannelError, NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", shader_fixture::manifest);
 
     if (written < 0 || std::fflush(stdout) != 0)

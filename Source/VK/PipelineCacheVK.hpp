@@ -1,4 +1,5 @@
 // © 2026 NVIDIA Corporation
+#include "PipelineCacheHeaderVK.h"
 
 PipelineCacheVK::~PipelineCacheVK() {
     if (m_Handle) {
@@ -11,20 +12,24 @@ Result PipelineCacheVK::Create(const PipelineCacheDesc& pipelineCacheDesc) {
     if (!m_Device.GetDesc().features.pipelineCache)
         return Result::SUCCESS;
 
+    const auto& vk = m_Device.GetDispatchTable();
+
+    if (pipelineCacheDesc.size) {
+        VkPhysicalDeviceProperties2 properties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+        vk.GetPhysicalDeviceProperties2(m_Device, &properties);
+
+        if (!IsPipelineCacheCompatible(pipelineCacheDesc.data, pipelineCacheDesc.size, properties.properties))
+            return Result::OUT_OF_DATE;
+    }
+
     VkPipelineCacheCreateInfo info = {VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     info.initialDataSize = (size_t)pipelineCacheDesc.size;
     info.pInitialData = pipelineCacheDesc.data;
 
-    const auto& vk = m_Device.GetDispatchTable();
     VkResult vkResult = vk.CreatePipelineCache(m_Device, &info, m_Device.GetVkAllocationCallbacks(), &m_Handle);
     NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkCreatePipelineCache");
 
-    size_t size = 0;
-    vkResult = vk.GetPipelineCacheData(m_Device, m_Handle, &size, nullptr);
-    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetPipelineCacheData");
-
-    // VK returns "SUCCESS" for any variant of stale/incompatible data, try to guess...
-    return size < info.initialDataSize ? Result::OUT_OF_DATE : Result::SUCCESS;
+    return Result::SUCCESS;
 }
 
 Result PipelineCacheVK::GetData(void* dst, uint64_t& size) const {
