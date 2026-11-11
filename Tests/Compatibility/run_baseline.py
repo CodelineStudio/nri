@@ -40,7 +40,15 @@ def main():
     parser.add_argument("--require-renderpass1", action="store_true")
     parser.add_argument("--require-renderpass2", action="store_true")
     parser.add_argument("--require-api-minor", type=int, choices=(1, 2, 3, 4))
+    parser.add_argument('--compute-input', type=Path)
+    parser.add_argument('--compute-entry', default='computeMain')
+    parser.add_argument('--compute-xor', type=int, default=0)
+    parser.add_argument('--compute-validator', type=Path)
     args = parser.parse_args()
+    if args.compute_input and (args.fixture != 'nri_vulkan_shader_execution' or not args.compute_validator):
+        parser.error('External compute input requires shader fixture and SPIR-V validator')
+    if not 0 <= args.compute_xor <= 0xffffffff or (args.compute_xor and not args.compute_input):
+        parser.error('Compute xor must be uint32 and requires an external shader')
     if (args.cache_input or args.cache_output or args.require_pipeline_cache_hit) and args.fixture != 'nri_vulkan_shader_execution':
         parser.error('Pipeline cache arguments require the shader fixture')
     if not 0 < args.timeout <= 600 or args.adapter < 0:
@@ -57,6 +65,17 @@ def main():
         command += ['--cache-output', str(args.cache_output.resolve())]
     if args.require_pipeline_cache_hit:
         command.append('--cache-hit-only')
+    compute_identity = None
+    if args.compute_input:
+        from compile_shaders import validate_spirv
+        raw = args.compute_input.read_bytes()
+        validate_spirv(raw)
+        captured = args.output.resolve() / 'runtime-compute.spv'
+        captured.write_bytes(raw)
+        validator = args.compute_validator.resolve(strict=True)
+        subprocess.run([str(validator), '--target-env', 'vulkan1.1', str(captured)], check=True, capture_output=True, timeout=30)
+        command += ['--compute-input', str(captured), '--compute-entry', args.compute_entry, '--compute-xor', str(args.compute_xor)]
+        compute_identity = {'sha256': hashlib.sha256(raw).hexdigest(), 'validator_sha256': hashlib.sha256(validator.read_bytes()).hexdigest(), 'entry': args.compute_entry, 'xor': args.compute_xor}
     started = time.monotonic()
     receipt = {
         "schema_version": 1,
@@ -68,6 +87,7 @@ def main():
         "timed_out": False,
         "status": "failed",
     }
+    receipt["runtime_compute"] = compute_identity
     stdout = b""
     stderr = b""
     try:
@@ -117,6 +137,9 @@ def main():
                         raise ValueError('Missing indirect feature execution counters')
                     indirect = receipt['indirect_features'] = records[0]
                     device = manifest['device']
+                    compute_records = [json.loads(line.split('NRI_COMPUTE_INPUT ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_COMPUTE_INPUT ')]
+                    if compute_records != [{'external': bool(args.compute_input), 'xor': args.compute_xor}]:
+                        raise ValueError('Runtime compute selection was not executed')
                     query_records = [json.loads(line.split('NRI_DRAW_CAPABILITIES ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_DRAW_CAPABILITIES ')]
                     fields = ('multi_draw_indirect', 'draw_indirect_first_instance', 'shader_draw_parameters', 'draw_indirect_count')
                     if len(query_records) != 1 or query_records[0] != {key: device[key] for key in fields}:

@@ -17,6 +17,7 @@ extern "C" const void* QueryDrawCapabilitiesFromC(const void* device);
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <vector>
 
 namespace {
@@ -61,6 +62,8 @@ struct Fixture {
     uint32_t drawLimit = 0;
     bool drawCountSupported = false;
     nri::DrawCapabilitiesVKDesc drawCapabilities = {};
+    uint32_t computeXor = 0;
+    std::vector<uint32_t> externalCompute;
 
     static void NRI_CALL Message(nri::Message severity, const char* file, uint32_t line, const char* text, void* user) {
         auto& fixture = *(Fixture*)user;
@@ -84,7 +87,22 @@ struct Fixture {
         return condition;
     }
 
-    bool Initialize(bool validation, uint32_t adapterIndex, const char* cacheInput, bool requireCacheHit) {
+    bool Initialize(bool validation, uint32_t adapterIndex, const char* cacheInput, bool requireCacheHit, const char* computeInput, const char* computeEntry) {
+        if (computeInput) {
+            std::ifstream input(computeInput, std::ios::binary | std::ios::ate);
+            auto size = input.tellg();
+
+            if (!Check(input && size >= 20 && size <= 32 * 1024 * 1024 && size % 4 == 0, "external compute size"))
+                return false;
+
+            externalCompute.resize(size_t(size) / 4);
+            input.seekg(0);
+            input.read((char*)externalCompute.data(), size);
+
+            if (!Check(bool(input) && externalCompute[0] == 0x07230203 && externalCompute[1] == 0x00010300, "external SPIR-V1.3 input"))
+                return false;
+        }
+
         uint32_t count = 0;
 
         if (!Check(nri::nriEnumerateAdapters(nullptr, count, nri::GraphicsAPI::VK) == nri::Result::SUCCESS && adapterIndex < count, "enumerate adapters"))
@@ -247,6 +265,10 @@ struct Fixture {
         nri::ComputePipelineDesc computeDesc = {};
         computeDesc.pipelineLayout = layout;
         computeDesc.shader = {nri::StageBits::COMPUTE_SHADER, shader_fixture::compute, sizeof(shader_fixture::compute), "computeMain"};
+
+        if (!externalCompute.empty())
+            computeDesc.shader = {nri::StageBits::COMPUTE_SHADER, externalCompute.data(), externalCompute.size() * sizeof(uint32_t), computeEntry};
+
         computeDesc.cache = pipelineCache.cache;
         computeDesc.flags = pipelineCache.requireHit ? nri::ComputePipelineBits::FAIL_ON_CACHE_MISS : nri::ComputePipelineBits::NONE;
         auto pipelineBegin = std::chrono::steady_clock::now();
@@ -507,7 +529,7 @@ struct Fixture {
             uint32_t bits;
             std::memcpy(&bits, &transformed, sizeof(bits));
             uint32_t neighbor = (i / 32) * 32 + (i + 1) % 32;
-            const uint32_t expected[] = {ExpectedValue(i, parameters), ExpectedValue(neighbor, parameters), bits, i ^ parameters.nonce};
+            const uint32_t expected[] = {ExpectedValue(i, parameters), ExpectedValue(neighbor, parameters), bits, i ^ parameters.nonce ^ computeXor};
             exact &= std::memcmp(values + i * 4, expected, sizeof(expected)) == 0;
         }
 
@@ -616,6 +638,9 @@ int main(int argc, char** argv) {
     const char* cacheInput = nullptr;
     const char* cacheOutput = nullptr;
     bool requireCacheHit = false;
+    const char* computeInput = nullptr;
+    const char* computeEntry = "computeMain";
+    uint32_t computeXor = 0;
 
     for (int i = 1; i < argc; i++) {
         if (std::strcmp(argv[i], "--validation") == 0)
@@ -624,9 +649,14 @@ int main(int argc, char** argv) {
             cacheInput = argv[++i];
         else if (std::strcmp(argv[i], "--cache-output") == 0 && (i + 1) < argc)
             cacheOutput = argv[++i];
+        else if (std::strcmp(argv[i], "--compute-input") == 0 && (i + 1) < argc)
+            computeInput = argv[++i];
+        else if (std::strcmp(argv[i], "--compute-entry") == 0 && (i + 1) < argc)
+            computeEntry = argv[++i];
         else if (std::strcmp(argv[i], "--cache-hit-only") == 0)
             requireCacheHit = true;
-        else if (std::strcmp(argv[i], "--adapter") == 0 && (i + 1) < argc) {
+        else if ((std::strcmp(argv[i], "--adapter") == 0 || std::strcmp(argv[i], "--compute-xor") == 0) && (i + 1) < argc) {
+            bool isAdapter = std::strcmp(argv[i], "--adapter") == 0;
             char* end = nullptr;
             const char* value = argv[++i];
             errno = 0;
@@ -635,13 +665,17 @@ int main(int argc, char** argv) {
             if (!*value || *end || *value == '-' || errno == ERANGE || parsed > UINT32_MAX)
                 return 2;
 
-            adapter = uint32_t(parsed);
+            if (isAdapter)
+                adapter = uint32_t(parsed);
+            else
+                computeXor = uint32_t(parsed);
         } else
             return 2;
     }
 
     Fixture fixture;
-    bool passed = fixture.Initialize(validation, adapter, cacheInput, requireCacheHit);
+    fixture.computeXor = computeXor;
+    bool passed = fixture.Initialize(validation, adapter, cacheInput, requireCacheHit, computeInput, computeEntry);
 
     for (uint32_t cycle = 0; cycle < 8 && passed; cycle++)
         passed = fixture.Execute(cycle);
@@ -656,6 +690,7 @@ int main(int argc, char** argv) {
 
     passed = fixture.Cleanup() && passed && fixture.errors.load() == 0;
     std::printf("NRI_INDIRECT_FEATURES {\"draw_limit\":%u,\"multi_draw_calls\":%u,\"count_draw_calls\":%u,\"split_draw_calls\":%u,\"expected_rejections\":%u}\n", fixture.drawLimit, fixture.multiDrawCalls, fixture.countDrawCalls, fixture.splitDrawCalls, fixture.expectedRejections);
+    std::printf("NRI_COMPUTE_INPUT {\"external\":%s,\"xor\":%u}\n", computeInput ? "true" : "false", computeXor);
     const auto& enabled = fixture.drawCapabilities;
     std::printf("NRI_DRAW_CAPABILITIES {\"multi_draw_indirect\":%u,\"draw_indirect_first_instance\":%u,\"shader_draw_parameters\":%u,\"draw_indirect_count\":%u}\n", uint32_t(enabled.multiDrawIndirect), uint32_t(enabled.drawIndirectFirstInstance), uint32_t(enabled.shaderDrawParameters), uint32_t(enabled.drawIndirectCount));
     const auto& cache = fixture.pipelineCache;

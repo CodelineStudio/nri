@@ -6,12 +6,17 @@
 #include <atomic>
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
 #include <string>
+
+#if defined(_WIN32)
+#    include <windows.h>
+#endif
 
 namespace {
 
@@ -42,6 +47,11 @@ static void Write(const fs::path& path, slang::IBlob* blob) {
 }
 
 static void Check(SlangResult result, Slang::ComPtr<slang::IBlob>& diagnostics, const char* operation) {
+    if (std::getenv("NRI_SLANG_TRACE")) {
+        std::fprintf(stderr, "Slang returned: %s\n", operation);
+        std::fflush(stderr);
+    }
+
     bool emittedDiagnostics = diagnostics && diagnostics->getBufferSize();
 
     if (emittedDiagnostics)
@@ -128,13 +138,15 @@ static double Milliseconds(Clock::time_point begin, Clock::time_point end) {
 }
 
 static int Compile(int argc, char** argv) {
-    if (argc != 8)
-        throw std::runtime_error("Usage: NRICompatibilitySlangInputs text|memory|module input entry compute|vertex|fragment output-prefix module-directory profile");
+    if (argc != 8 && argc != 9)
+        throw std::runtime_error("Usage: NRICompatibilitySlangInputs text|memory|module|module-memory input entry compute|vertex|fragment output-prefix module-directory profile [link-input]");
 
     std::string kind = argv[1];
 
-    if (kind != "text" && kind != "memory" && kind != "module")
+    if (kind != "text" && kind != "memory" && kind != "module" && kind != "module-memory")
         throw std::runtime_error("Unknown input kind");
+
+    bool binaryBase = kind == "module" || kind == "module-memory";
 
     SlangStage stage = std::strcmp(argv[4], "compute") == 0 ? SLANG_STAGE_COMPUTE : (std::strcmp(argv[4], "vertex") == 0 ? SLANG_STAGE_VERTEX : (std::strcmp(argv[4], "fragment") == 0 ? SLANG_STAGE_FRAGMENT : SLANG_STAGE_NONE));
 
@@ -144,7 +156,7 @@ static int Compile(int argc, char** argv) {
     fs::path input = fs::absolute(argv[2]), prefix = fs::absolute(argv[5]), moduleDirectory = fs::absolute(argv[6]);
     fs::create_directories(prefix.parent_path());
     fs::create_directories(moduleDirectory);
-    std::string moduleName = input.stem().string(), search = (kind == "module" ? moduleDirectory : input.parent_path()).string();
+    std::string moduleName = input.stem().string(), search = (binaryBase ? moduleDirectory : input.parent_path()).string();
     const char* searchPaths[] = {search.c_str()};
     Slang::ComPtr<slang::IGlobalSession> global;
     Slang::ComPtr<slang::IBlob> diagnostics;
@@ -177,7 +189,7 @@ static int Compile(int argc, char** argv) {
     desc.compilerOptionEntryCount = sizeof(options) / sizeof(options[0]);
     Slang::ComPtr<ModuleFileSystem> moduleFiles;
 
-    if (kind == "module") {
+    if (binaryBase) {
         moduleFiles.attach(new ModuleFileSystem(moduleDirectory));
         desc.fileSystem = moduleFiles;
     }
@@ -201,11 +213,26 @@ static int Compile(int argc, char** argv) {
     }
 
     Check(module ? SLANG_OK : SLANG_FAIL, diagnostics, "module load");
+    Slang::ComPtr<slang::IModule> linkModule;
+
+    if (argc == 9) {
+        fs::path linkInput = fs::absolute(argv[8]);
+        std::string linkBytes = Read(linkInput), linkName = linkInput.stem().string();
+
+        if (kind == "module") {
+            Slang::ComPtr<slang::IBlob> blob(Slang::INIT_ATTACH, slang_createBlob(linkBytes.data(), linkBytes.size()));
+            linkModule = session->loadModuleFromIRBlob(linkName.c_str(), linkInput.string().c_str(), blob, diagnostics.writeRef());
+        } else
+            linkModule = session->loadModuleFromSourceString(linkName.c_str(), linkInput.string().c_str(), linkBytes.c_str(), diagnostics.writeRef());
+
+        Check(linkModule ? SLANG_OK : SLANG_FAIL, diagnostics, "link module load");
+    }
+
     Slang::ComPtr<slang::IEntryPoint> entry;
     Check(module->findAndCheckEntryPoint(argv[3], stage, entry.writeRef(), diagnostics.writeRef()), diagnostics, "entry point");
     auto loaded = Clock::now();
 
-    if (kind != "module") {
+    if (!binaryBase) {
         for (SlangInt i = 0; i < session->getLoadedModuleCount(); i++) {
             auto* loadedModule = session->getLoadedModule(i);
             Slang::ComPtr<slang::IBlob> serialized;
@@ -215,9 +242,9 @@ static int Compile(int argc, char** argv) {
     }
 
     auto serialized = Clock::now();
-    slang::IComponentType* components[] = {module, entry};
+    slang::IComponentType* components[] = {module, entry, linkModule};
     Slang::ComPtr<slang::IComponentType> composed, linked;
-    Check(session->createCompositeComponentType(components, 2, composed.writeRef(), diagnostics.writeRef()), diagnostics, "composition");
+    Check(session->createCompositeComponentType(components, linkModule ? 3 : 2, composed.writeRef(), diagnostics.writeRef()), diagnostics, "composition");
     Check(composed->link(linked.writeRef(), diagnostics.writeRef()), diagnostics, "link");
     auto linkedTime = Clock::now();
     Slang::ComPtr<slang::IBlob> binary, reflection;
@@ -236,6 +263,12 @@ static int Compile(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
+#if defined(_WIN32)
+    // Bounded compiler subprocesses must return a crash status rather than
+    // waiting indefinitely for a Windows error-reporting dialog.
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+#endif
+
     try {
         return Compile(argc, argv);
     } catch (const std::exception& error) {

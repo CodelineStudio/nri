@@ -15,6 +15,8 @@ def pipeline_identity(receipt):
             # The fixture executable contains every pipeline/format/layout state.
             # A shipping engine should serialize its actual PSO descriptions.
             'pipeline_fixture_binary': receipt['binary_sha256'],
+            # Runtime binaries/entry names are not embedded in the executable.
+            'runtime_compute': receipt.get('runtime_compute'),
             'shaders': {name: shader['binary_sha256'] for name, shader in fixture['shader_manifest']['shaders'].items()}}
 
 

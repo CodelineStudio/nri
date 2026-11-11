@@ -556,3 +556,24 @@ independently; the matching runner flags are `--require-no-indirect-first-instan
 and `--require-no-shader-draw-parameters`. The all-optionals-disabled legacy
 profile remains supported. Modern and extension-free1.1 runs are differential
 coverage on the available modern GPU, not genuine older-device acceptance.
+
+### Runtime-generated and link-specialized inputs
+
+The Slang input driver accepts an optional final link-input path. Text/memory
+modes load that source as a distinct module; module mode loads both inputs from
+serialized IR. `module-memory` loads a serialized base and a newly generated
+specialization module from source, with the existing filesystem preventing base
+source fallback. The caller must validate output and reflection before admission.
+`NRI_SLANG_TRACE` enables phase diagnostics for compiler investigation. Windows
+crash dialogs are suppressed so bounded subprocesses can report a crash status.
+
+The GPU runner accepts `--compute-input`, `--compute-entry`, `--compute-xor` and
+the required `--compute-validator`. It snapshots the supplied SPIR-V1.3 binary,
+enforces baseline capabilities and runs Vulkan1.1 validation before pipeline
+creation. The replacement compute shader must preserve the fixture's uniform,
+storage and output contract; its fourth uint result is additionally XORed with
+the independently supplied expected value. Exact storage/pixel/indirect checks
+still apply. Receipts distinguish embedded shaders from the actual runtime
+compute input, and driver-cache identities include the runtime binary and entry.
+The generic fixture does not contain consumer-engine source or implement a
+shipping compiler/cache service.
