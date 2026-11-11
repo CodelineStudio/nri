@@ -45,6 +45,12 @@ if(NRI_COMPATIBILITY_FORCE_LEGACY_SYNC)
 endif()
 
 add_executable(NRICompatibilityBaseline baseline.cpp)
+add_executable(NRICompatibilityFenceSequences fence_sequences.cpp)
+find_package(Threads REQUIRED)
+target_link_libraries(NRICompatibilityFenceSequences PRIVATE NRI Threads::Threads)
+target_compile_features(NRICompatibilityFenceSequences PRIVATE cxx_std_17)
+set_target_properties(NRICompatibilityFenceSequences PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_definitions(NRICompatibilityFenceSequences PRIVATE NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
 target_compile_definitions(NRICompatibilityBaseline PRIVATE NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
 
 enable_testing()
@@ -70,8 +76,14 @@ endif()
 target_compile_definitions(NRICompatibilityBaseline PRIVATE
     NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
     NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
+target_compile_definitions(NRICompatibilityFenceSequences PRIVATE
+    NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+    NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 
 if(NOT NRI_STATIC_LIBRARY)
+    add_custom_command(TARGET NRICompatibilityFenceSequences POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityFenceSequences>"
+        VERBATIM)
     add_custom_command(TARGET NRICompatibilityBaseline POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityBaseline>"
         VERBATIM)

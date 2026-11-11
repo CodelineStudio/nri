@@ -19,6 +19,26 @@ depth values are not verified by these clear/resolve tests. The layered fixture
 requires multiview with at least two views and 4x RGBA8/D32 sample support.
 Callback messages go to stderr; stdout contains a JSON result.
 
+## Future waits and host query reset
+
+Build `NRICompatibilityFenceSequences` and use the same bounded runner with
+`--exe <path-to-NRICompatibilityFenceSequences> --fixture nri_vulkan_fence_sequences`.
+This fixture requires two distinct graphics queues. It starts a fence at5,
+submits a consumer waiting for7 before submitting its producer, and verifies
+that pending work is not reported completed. While queue0 is waiting, it resets
+unrelated queries on the host; the query commands were recorded beforehand but
+have not been submitted. Queue1 then copies a deterministic pattern and signals9.
+Both consumers must read back the exact bytes. Two concurrent host waiters and
+repeated waits for older values must succeed without consuming completion state.
+A later partial host reset updates query0 while query1 retains its exact result.
+
+Run both legacy synchronization and native modern profiles with native validation.
+These tests currently use native timeline semaphores and host query reset. They
+establish the behavior the pending emulation must preserve, not emulation support.
+In particular, an implementation of host reset that submits to queue0 and waits
+would depend on the future producer the caller cannot submit until reset returns.
+The fixture's timeout still applies to submission, reset, all waits and cleanup.
+
 ## Build and run
 
 From the NRI root, configure a separate build directory:

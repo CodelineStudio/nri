@@ -15,6 +15,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -57,7 +58,7 @@ def main():
         for line in stdout.decode("utf-8", errors="replace").splitlines():
             try:
                 candidate = json.loads(line)
-                if isinstance(candidate, dict) and candidate.get("fixture") == "nri_vulkan_buffer_baseline":
+                if isinstance(candidate, dict) and candidate.get("fixture") == args.fixture:
                     candidates.append(candidate)
             except json.JSONDecodeError:
                 pass
