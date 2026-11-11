@@ -737,3 +737,23 @@ Resizes are deliberate and occur after retirement. Unexpected surface loss fails
 this exact-accounting fixture; injected acquire/present loss and recovery remain
 covered by NRICompatibilityPresentation. This is desktop WSI evidence, not Android
 lifecycle coverage, a performance result, or a long-duration soak.
+
+### Native fence query failures
+
+NRIFenceQueryTests compiles the actual FenceVK class and implementation against
+a controlled device, scheduler and Vulkan dispatch. It checks device loss,
+host/device allocation errors and unknown errors with both untouched output and
+an overwritten UINT64_MAX output. Failed counter queries report the native
+operation and mapped error through the existing device callback, then return
+zero. They never publish the unspecified native output as completed work.
+
+Successful zero, ordinary and high-bit counter values are preserved. A successful
+query following a temporary host allocation failure still works; the legacy
+path continues to use only its scheduler. The controlled conversion dependency
+is not a separate test of the full Vulkan error conversion table.
+
+This is deterministic error-path coverage, not a real GPU device-loss event.
+GetFenceValue has no result parameter: applications must handle the existing
+error callback and stop normal rendering after device loss. Zero on failure is
+not permission to treat a requested positive fence value as completed, nor a
+guarantee that a lost device can recover without being recreated.

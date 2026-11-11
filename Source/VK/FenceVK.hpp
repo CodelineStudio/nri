@@ -77,7 +77,14 @@ NRI_INLINE uint64_t FenceVK::GetFenceValue() const {
     uint64_t value = 0;
 
     const auto& vk = m_Device.GetDispatchTable();
-    vk.GetSemaphoreCounterValue((VkDevice)m_Device, m_Handle, &value);
+    VkResult vkResult = vk.GetSemaphoreCounterValue((VkDevice)m_Device, m_Handle, &value);
+
+    if (vkResult < 0) {
+        Result result = GetResultFromVkResult(vkResult);
+        m_Device.ReportMessage(Message::ERROR, result, __FILE__, __LINE__, "GetSemaphoreCounterValue(): failed, result = 0x%08X (%d)!", vkResult, vkResult);
+
+        return 0;
+    }
 
     return value;
 }
