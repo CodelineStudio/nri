@@ -142,6 +142,12 @@ def main():
                             size, version, vendor, device = struct.unpack_from('<4I', data)
                             cache[label] = {'sha256': hashlib.sha256(data).hexdigest(), 'header_size': size, 'header_version': version, 'vendor_id': vendor, 'device_id': device, 'pipeline_cache_uuid': data[16:32].hex()}
                 if args.fixture == 'nri_vulkan_shader_execution':
+                    reuse = [json.loads(line.split('NRI_DESCRIPTOR_REUSE ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_DESCRIPTOR_REUSE ')]
+                    if len(reuse) != 1 or any(reuse[0].get(k) != v for k, v in {'cycles': 8, 'pool_resets': 14, 'range_copies': 24}.items()) or reuse[0].get('uniform_stride', 0) < 80:
+                        raise ValueError('Descriptor reset/copy/reuse qualification incomplete')
+                    if reuse[0].get('expected_rejections') != (24 if args.validation or args.require_native_validation else 0):
+                        raise ValueError('Descriptor bounds rejection coverage incomplete')
+                    receipt['descriptor_reuse'] = reuse[0]
                     records = [json.loads(line.split('NRI_INDIRECT_FEATURES ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_INDIRECT_FEATURES ')]
                     if len(records) != 1:
                         raise ValueError('Missing indirect feature execution counters')

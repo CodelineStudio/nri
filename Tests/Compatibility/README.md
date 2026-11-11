@@ -602,3 +602,19 @@ both switches before running the other fixtures. Injected errors do not prove
 behavior under actual exhausted device memory. This fixture does not establish
 noncoherent-memory coverage, descriptor reuse, overlapping in-flight resources
 or real legacy-device support; those remain separate acceptance cases.
+
+### Descriptor reset, copy and offset reuse
+
+The shader execution fixture recreates its three buffer views and allocates
+fresh sets from capacity-one copy-source and shader-visible pools each cycle.
+After confirmed completion it resets the command allocator and both pools.
+Uniform bindings alternate between two correctly aligned offsets; the unused
+slot contains different, bounded parameters. Exact compute, indirect argument
+and pixel results must reflect the newly copied descriptor range each cycle.
+Receipts require eight cycles, fourteen pool resets and twenty-four range copies.
+
+With NRI validation enabled, each cycle also attempts one excess set allocation,
+one out-of-range update and one out-of-range copy. All twenty-four diagnostics
+must be recognized before native execution, with subsequent exact output intact
+and zero native validation errors/warnings. These checks cover completed-work
+reuse; overlapping in-flight descriptor lifetimes remain a separate scenario.

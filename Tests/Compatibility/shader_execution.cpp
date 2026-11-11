@@ -45,6 +45,7 @@ struct Fixture {
     nri::Fence* fence = nullptr;
     nri::PipelineLayout* layout = nullptr;
     nri::DescriptorPool* pool = nullptr;
+    nri::DescriptorPool* copyPool = nullptr;
     nri::DescriptorSet* set = nullptr;
     nri::Pipeline* compute = nullptr;
     nri::Pipeline* arguments = nullptr;
@@ -56,6 +57,9 @@ struct Fixture {
     // Uniform, storage, storage readback, image readback, vertices, arguments, argument upload/readback, indices.
     std::array<nri::Buffer*, 9> buffers{};
     uint32_t rowPitch = 0, slicePitch = 0;
+    uint64_t uniformStride = 0;
+    uint32_t descriptorResets = 0, descriptorCopies = 0, descriptorCycles = 0, descriptorRejections = 0;
+    const char* expectedDescriptorError = nullptr;
     uint32_t completedCycles = 0, deviceId = 0, driver = 0;
     bool ready = false, validationEnabled = false, expectDrawLimitError = false;
     uint32_t expectedRejections = 0, multiDrawCalls = 0, countDrawCalls = 0, splitDrawCalls = 0;
@@ -70,6 +74,8 @@ struct Fixture {
 
         if (severity == nri::Message::ERROR && fixture.expectDrawLimitError && text && std::strstr(text, "'drawNum' exceeds 'other.drawIndirectMaxNum'"))
             fixture.expectedRejections++;
+        else if (severity == nri::Message::ERROR && fixture.expectedDescriptorError && text && std::strstr(text, fixture.expectedDescriptorError))
+            fixture.descriptorRejections++;
         else if (severity == nri::Message::ERROR)
             fixture.errors++;
         else if (severity == nri::Message::WARNING)
@@ -157,7 +163,8 @@ struct Fixture {
 
         rowPitch = ((256 + desc.memoryAlignment.uploadBufferTextureRow - 1) / desc.memoryAlignment.uploadBufferTextureRow) * desc.memoryAlignment.uploadBufferTextureRow;
         slicePitch = ((rowPitch * 64 + desc.memoryAlignment.uploadBufferTextureSlice - 1) / desc.memoryAlignment.uploadBufferTextureSlice) * desc.memoryAlignment.uploadBufferTextureSlice;
-        const uint64_t sizes[] = {sizeof(Parameters), 64 * 16, 64 * 16, slicePitch, 13 * 2 * sizeof(float), 256, 256, 256, 14 * sizeof(uint16_t)};
+        uniformStride = ((sizeof(Parameters) + desc.memoryAlignment.constantBufferOffset - 1) / desc.memoryAlignment.constantBufferOffset) * desc.memoryAlignment.constantBufferOffset;
+        const uint64_t sizes[] = {uniformStride * 2, 64 * 16, 64 * 16, slicePitch, 13 * 2 * sizeof(float), 256, 256, 256, 14 * sizeof(uint16_t)};
 
         for (uint32_t i = 0; i < buffers.size(); i++) {
             nri::BufferDesc buffer = {};
@@ -240,27 +247,13 @@ struct Fixture {
         poolDesc.storageStructuredBufferMaxNum = 2;
 
         if (!Check(core.CreatePipelineLayout(*device, layoutDesc, layout) == nri::Result::SUCCESS, "pipeline layout") ||
-            !Check(core.CreateDescriptorPool(*device, poolDesc, pool) == nri::Result::SUCCESS, "descriptor pool") ||
-            !Check(core.AllocateDescriptorSets(*pool, *layout, 0, &set, 1, 0) == nri::Result::SUCCESS, "descriptor set"))
+            !Check(core.CreateDescriptorPool(*device, poolDesc, pool) == nri::Result::SUCCESS, "descriptor pool"))
             return false;
 
-        for (uint32_t i = 0; i < 3; i++) {
-            nri::BufferViewDesc bufferView = {};
-            uint32_t bufferIndex = i == 2 ? 5 : i;
-            bufferView.buffer = buffers[bufferIndex];
-            bufferView.type = i == 0 ? nri::BufferView::CONSTANT_BUFFER : nri::BufferView::STORAGE_STRUCTURED_BUFFER;
-            bufferView.size = sizes[bufferIndex];
+        poolDesc.flags = nri::DescriptorPoolBits::COPY_SOURCE;
 
-            if (!Check(core.CreateBufferView(bufferView, descriptors[i]) == nri::Result::SUCCESS, "buffer view"))
-                return false;
-
-            nri::UpdateDescriptorRangeDesc update = {};
-            update.descriptorSet = set;
-            update.rangeIndex = i;
-            update.descriptors = &descriptors[i];
-            update.descriptorNum = 1;
-            core.UpdateDescriptorRanges(&update, 1);
-        }
+        if (!Check(core.CreateDescriptorPool(*device, poolDesc, copyPool) == nri::Result::SUCCESS, "copy-source descriptor pool"))
+            return false;
 
         nri::ComputePipelineDesc computeDesc = {};
         computeDesc.pipelineLayout = layout;
@@ -313,18 +306,109 @@ struct Fixture {
         return pipelinesCreated;
     }
 
+    bool PrepareDescriptors(uint32_t cycle) {
+        if (cycle && !Check(core.GetFenceValue(*fence) >= cycle, "descriptor retirement completion"))
+            return false;
+
+        core.ResetCommandAllocator(*allocator);
+
+        if (cycle) {
+            core.ResetDescriptorPool(*pool);
+            core.ResetDescriptorPool(*copyPool);
+            descriptorResets += 2;
+
+            for (auto*& descriptor : descriptors) {
+                core.DestroyDescriptor(descriptor);
+                descriptor = nullptr;
+            }
+        }
+
+        nri::DescriptorSet* source = nullptr;
+
+        if (!Check(core.AllocateDescriptorSets(*pool, *layout, 0, &set, 1, 0) == nri::Result::SUCCESS, "reallocated shader-visible set") ||
+            !Check(core.AllocateDescriptorSets(*copyPool, *layout, 0, &source, 1, 0) == nri::Result::SUCCESS, "reallocated copy-source set"))
+            return false;
+
+        for (uint32_t i = 0; i < 3; i++) {
+            nri::BufferViewDesc view = {};
+            view.buffer = buffers[i == 2 ? 5 : i];
+            view.type = i == 0 ? nri::BufferView::CONSTANT_BUFFER : nri::BufferView::STORAGE_STRUCTURED_BUFFER;
+            view.size = i == 0 ? sizeof(Parameters) : (i == 1 ? 64 * 16 : 256);
+            view.offset = i == 0 ? uniformStride * (cycle & 1) : 0;
+
+            if (!Check(core.CreateBufferView(view, descriptors[i]) == nri::Result::SUCCESS, "replacement buffer view"))
+                return false;
+
+            nri::UpdateDescriptorRangeDesc update = {};
+            update.descriptorSet = source;
+            update.rangeIndex = i;
+            update.descriptors = &descriptors[i];
+            update.descriptorNum = 1;
+            core.UpdateDescriptorRanges(&update, 1);
+            nri::CopyDescriptorRangeDesc copy = {};
+            copy.srcDescriptorSet = source;
+            copy.srcRangeIndex = copy.dstRangeIndex = i;
+            copy.dstDescriptorSet = set;
+            copy.descriptorNum = 1;
+            core.CopyDescriptorRanges(&copy, 1);
+            descriptorCopies++;
+        }
+
+        if (validationEnabled) {
+            uint32_t previousRejections = descriptorRejections;
+            nri::DescriptorSet* excess = nullptr;
+            expectedDescriptorError = "exceeded the maximum number of descriptor sets";
+            nri::Result result = core.AllocateDescriptorSets(*pool, *layout, 0, &excess, 1, 0);
+            expectedDescriptorError = nullptr;
+
+            if (!Check(result == nri::Result::INVALID_ARGUMENT, "descriptor pool exhaustion rejected"))
+                return false;
+
+            nri::UpdateDescriptorRangeDesc update = {};
+            update.descriptorSet = set;
+            update.baseDescriptor = 1;
+            update.descriptors = &descriptors[0];
+            update.descriptorNum = 1;
+            expectedDescriptorError = "[0].baseDescriptor = 1";
+            core.UpdateDescriptorRanges(&update, 1);
+            expectedDescriptorError = nullptr;
+            nri::CopyDescriptorRangeDesc copy = {};
+            copy.srcDescriptorSet = source;
+            copy.dstDescriptorSet = set;
+            copy.dstBaseDescriptor = 1;
+            copy.descriptorNum = 1;
+            expectedDescriptorError = "[0].dstBaseDescriptor = 1";
+            core.CopyDescriptorRanges(&copy, 1);
+            expectedDescriptorError = nullptr;
+
+            if (!Check(descriptorRejections == previousRejections + 3, "invalid descriptor operations rejected before native execution"))
+                return false;
+        }
+
+        descriptorCycles++;
+
+        return errors.load() == 0;
+    }
+
     bool Execute(uint32_t cycle) {
+        if (!PrepareDescriptors(cycle))
+            return false;
+
         Parameters parameters = {64, 1664525, 1013904223u + cycle, 0xa53c9e17u ^ cycle, {}};
         parameters.transform[0] = parameters.transform[5] = 0.5f;
         parameters.transform[10] = parameters.transform[15] = 1;
         parameters.transform[12] = 0.25f;
         parameters.transform[13] = -0.25f;
-        void* mapped = core.MapBuffer(*buffers[0], 0, sizeof(parameters));
+        Parameters poison = parameters;
+        poison.bias ^= 0x5a5a5a5au;
+        poison.nonce ^= 0x9e3779b9u;
+        void* mapped = core.MapBuffer(*buffers[0], 0, uniformStride * 2);
 
         if (!Check(mapped != nullptr, "uniform upload"))
             return false;
 
-        std::memcpy(mapped, &parameters, sizeof(parameters));
+        std::memcpy((uint8_t*)mapped + uniformStride * (cycle & 1), &parameters, sizeof(parameters));
+        std::memcpy((uint8_t*)mapped + uniformStride * ((cycle & 1) ^ 1), &poison, sizeof(poison));
         core.UnmapBuffer(*buffers[0]);
         std::array<uint32_t, 64> expectedArguments;
         expectedArguments.fill(0xdeadbeefu);
@@ -356,7 +440,6 @@ struct Fixture {
             std::memcpy(expectedArguments.data() + 24 + i * 4, nonindexed, sizeof(nonindexed));
             std::memcpy(expectedArguments.data() + 40 + i * 5, indexed, sizeof(indexed));
         }
-        core.ResetCommandAllocator(*allocator);
 
         if (!Check(core.BeginCommandBuffer(*command, pool) == nri::Result::SUCCESS, "begin commands"))
             return false;
@@ -600,6 +683,9 @@ struct Fixture {
             if (pool)
                 core.DestroyDescriptorPool(pool);
 
+            if (copyPool)
+                core.DestroyDescriptorPool(copyPool);
+
             if (layout)
                 core.DestroyPipelineLayout(layout);
 
@@ -691,6 +777,7 @@ int main(int argc, char** argv) {
     passed = fixture.Cleanup() && passed && fixture.errors.load() == 0;
     std::printf("NRI_INDIRECT_FEATURES {\"draw_limit\":%u,\"multi_draw_calls\":%u,\"count_draw_calls\":%u,\"split_draw_calls\":%u,\"expected_rejections\":%u}\n", fixture.drawLimit, fixture.multiDrawCalls, fixture.countDrawCalls, fixture.splitDrawCalls, fixture.expectedRejections);
     std::printf("NRI_COMPUTE_INPUT {\"external\":%s,\"xor\":%u}\n", computeInput ? "true" : "false", computeXor);
+    std::printf("NRI_DESCRIPTOR_REUSE {\"cycles\":%u,\"pool_resets\":%u,\"range_copies\":%u,\"expected_rejections\":%u,\"uniform_stride\":%llu}\n", fixture.descriptorCycles, fixture.descriptorResets, fixture.descriptorCopies, fixture.descriptorRejections, (unsigned long long)fixture.uniformStride);
     const auto& enabled = fixture.drawCapabilities;
     std::printf("NRI_DRAW_CAPABILITIES {\"multi_draw_indirect\":%u,\"draw_indirect_first_instance\":%u,\"shader_draw_parameters\":%u,\"draw_indirect_count\":%u}\n", uint32_t(enabled.multiDrawIndirect), uint32_t(enabled.drawIndirectFirstInstance), uint32_t(enabled.shaderDrawParameters), uint32_t(enabled.drawIndirectCount));
     const auto& cache = fixture.pipelineCache;
