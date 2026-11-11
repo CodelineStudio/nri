@@ -92,7 +92,7 @@ synchronization2 feature before device creation. This control exists only in the
 standalone fixture build. The three synchronization2 dispatch pointers remain
 null; buffer/image barriers, timestamps and queue submission must use the legacy
 commands. Use `--require-legacy-sync` to reject a wrongly configured run. Timeline
-semaphores remain native unless NO_TIMELINE is enabled. Configure OFF and rerun
+semaphores remain native unless NO_TIMELINE or NO_HOST_RESET is enabled. Configure OFF and rerun
 for the modern comparison.
 Build `NRILegacySynchronizationTests` and run CTest for Release-safe scope
 conversion checks, including split stage/access bits and unknown upper bits.
@@ -141,17 +141,39 @@ both aggregate and individual native timeline features. `--require-no-timeline`
 checks their absence. Test API1.1 with legacy synchronization and renderpass1,
 then native API with sync2 and no timeline, then all controls OFF. Emulated fence
 dependencies retain binary signal anchors; modern timeline entry points stay null
-when that feature is disabled. Host query reset is still native in these tests.
+when that feature is disabled. Host query reset stays native unless separately disabled.
+
+`-DNRI_COMPATIBILITY_NO_HOST_RESET=ON` removes the host-query-reset extension and
+disables its feature. `--require-no-host-reset` checks both. On this profile the
+scheduler also emulates ordinary fences even when the native timeline feature is
+enabled. This keeps future waits on the host so synchronous reset commands can
+run ahead of deferred work without deadlock. The reset waits for its own native
+completion, preserves partial ranges and leaves no deferred query side effects.
+Combine API1.1, RENDERPASS1, NO_TIMELINE, NO_HOST_RESET and legacy sync for a fixture
+with no device extensions. Also test native API/timeline/sync2 with NO_HOST_RESET,
+then all controls OFF.
+
+`NRICompatibilityQueryReset` (`--fixture nri_vulkan_query_reset`) requests only a
+COPY queue. It imports a native two-query timestamp pool, records timestamps
+before host reset, performs concurrent disjoint resets, and directly checks
+native availability after each call. Across 64 cycles, resetting query zero must
+leave query one's available result exactly unchanged. It logs actual queue-family
+flags so a transfer-only family is observed rather than assumed. Native Vulkan
+and NRI validation are enabled; raw Vulkan recording/results inspect the imported
+pool without introducing native queue submissions. The no-host-reset profile
+therefore exercises creation and cleanup of its internal reset-capable queue.
 
 `-DNRI_COMPATIBILITY_FAIL_SUBMIT=N` injects a device-memory failure before the Nth
 scheduler native submission (0 disables it). For the two-queue sequence N=3 fails
-the first consumer after producer and payload-split submissions. The runner must
+the first consumer after producer and payload-split submissions when host reset is
+native. With emulated host reset the submit ordinals differ. For the copy-only
+query fixture N=1 fails the first reset submission. The runner must
 report failure, with the injected diagnostic and no native lifetime errors. Save
 this expected-failure receipt; it must not be relabeled as a normal passing run.
 
-The temporary required capability is host query reset. Missing support returns UNSUPPORTED
-with a diagnostic identifying the unimplemented fallback. Full Vulkan1.1
-support requires these remaining implementations and actual legacy hardware.
+Neither native timeline nor host query reset is now a device-creation prerequisite
+for owned devices. Full Vulkan1.1 support still needs the remaining fixture
+families and actual legacy hardware.
 
 The legacy path merges barrier execution scopes, expands split scopes to their
 legacy equivalents, and uses conservative all-commands / memory-access scopes

@@ -16,6 +16,7 @@ struct LegacyCompletionVK {
 
     DeviceVK& device;
     VkFence fence = VK_NULL_HANDLE;
+    VkCommandPool commandPool = VK_NULL_HANDLE;
     Vector<VkSemaphore> retire;
     bool complete = false;
 };
@@ -68,6 +69,7 @@ struct LegacyQueueSchedulerVK {
     Result Wait(const std::shared_ptr<LegacyFenceStateVK>& state, uint64_t value);
     Result Submit(QueueVK& queue, const QueueSubmitDesc& desc);
     Result Drain(QueueVK* queue, bool completion);
+    Result ResetQueries(VkQueryPool queryPool, uint32_t offset, uint32_t num);
     void ReportStats();
 
 private:

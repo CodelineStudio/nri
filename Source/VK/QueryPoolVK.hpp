@@ -63,6 +63,12 @@ NRI_INLINE void QueryPoolVK::SetDebugName(const char* name) {
 }
 
 NRI_INLINE void QueryPoolVK::Reset(uint32_t offset, uint32_t num) {
+    if (!m_Device.m_IsSupported.hostQueryReset) {
+        m_Device.GetLegacyScheduler()->ResetQueries(m_Handle, offset, num);
+
+        return;
+    }
+
     const auto& vk = m_Device.GetDispatchTable();
     vk.ResetQueryPool(m_Device, m_Handle, offset, num);
 }

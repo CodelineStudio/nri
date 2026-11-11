@@ -34,7 +34,7 @@ class ManifestTests(unittest.TestCase):
             parse_manifest(self.encode(self.records + [self.records[2]]))
 
     def test_unknown_or_malformed_feature_rejected(self):
-        for field, value in [('timeline', None), ('synchronization2', 2), ('physical_api', '1.4')]:
+        for field, value in [('timeline', None), ('synchronization2', 2), ('physical_api', '1.4'), ('host_query_reset', False), ('host_query_reset', 2)]:
             records = copy.deepcopy(self.records)
             records[2][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):

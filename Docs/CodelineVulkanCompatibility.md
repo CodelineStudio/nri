@@ -16,14 +16,14 @@ The fixture verifies clear/load/store and rectangular clears, input-attachment
 layouts, and two-view 4x MSAA color resolve with a depth attachment on renderpass1,
 renderpass2 and native dynamic rendering. Shader execution is still pending.
 
-Owned devices without timeline semaphores now use `LegacyQueueSchedulerVK`.
+Owned devices without timeline semaphores or host query reset use `LegacyQueueSchedulerVK`.
 It retains FIFO order per physical queue, copies accepted submission arrays,
 defers unresolved future waits, and uses VkFence completion plus binary semaphore
 dependencies. Binary payload splitting preserves fanout and repeated waits;
 cross-queue signals retain transitive memory dependencies. Completed old points
 are retired while the newest completed anchor remains reusable. No ordinary
 submission uses a queue-idle substitute. Host waits release the scheduler mutex.
-Native timeline paths remain selected when that feature is enabled.
+Native timeline paths remain selected when both features are enabled.
 
 Tests cover transfer/render readback, future waits, two consumers, concurrent host
 waits, partial host query resets, 128 alternating-queue retirement cycles and an
@@ -34,10 +34,30 @@ timeline interop are unsupported on the emulated path. WSI integration has sourc
 changes for deferred work and acquisition locking, but runtime WSI acceptance,
 real device-loss handling, native interop and broader stress remain pending.
 
-**Temporary implementation prerequisite remaining:** host query reset. Device
-creation reports its missing fallback explicitly. A synchronous reset on an
-ordinary graphics queue is insufficient: the two-queue fixture demonstrates a
-legal host-reset call while that queue awaits a future producer.
+Host query reset now has a synchronous device-command fallback. The scheduler
+submits the exact reset range ahead of host-deferred FIFO heads and waits for its
+own native completion, releasing the scheduler mutex while waiting. It does not
+route reset work through an ordinary logical queue that may await a future signal.
+All logical fences are emulated on this profile even if native timeline features
+exist, so unresolved future waits cannot enter the native queues. This may wait
+behind already-submitted finite GPU work and is slower than native host reset.
+
+Reset work reuses queue zero of a requested graphics/compute family. Copy-only
+device requests receive one internal graphics/compute queue when necessary; an
+additional physical queue in that family is not required. The completion record
+owns its transient command pool until confirmed completion. Imported query pools
+retain synchronous observable reset behavior. Tests exercise transfer-only
+timestamps, pre-recorded commands, concurrent disjoint resets and unchanged
+results outside partial ranges, including direct native availability inspection.
+
+Native queue access is explicitly unavailable on the host-reset emulation
+profile: external submissions could bypass future-wait scheduling. Wrapped
+devices and native/shared timeline interop require both native features. Raw
+command-buffer interop with externally blocking events/work is outside this
+profile's supported contract; ordinary NRI commands and the tested imported query
+operations remain supported. General native interop qualification is pending.
+API1.1 offscreen/sequence/copy-only fixtures pass with no device extensions.
+This is still partial qualification: shaders, WSI and actual legacy devices remain.
 The modern GPU requesting API1.1 is not a real older-driver acceptance result.
 Baseline upstream: `a20efc8f7c6e4e6045acd6f29bf90b0d26ac3df5`.
 Fork branch: `codeline/vulkan-1.1`. Vulkan 1.0 and GLES are outside this work.

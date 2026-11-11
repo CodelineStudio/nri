@@ -564,6 +564,12 @@ static void* NRI_CALL GetQueueNativeObject(const Queue* queue) {
     QueueVK& queueVK = *(QueueVK*)queue;
     LegacyQueueSchedulerVK* scheduler = queueVK.GetDevice().GetLegacyScheduler();
 
+    if (!queueVK.GetDevice().m_IsSupported.hostQueryReset) {
+        NRI_REPORT_ERROR(&queueVK.GetDevice(), "Native queue access is unavailable with emulated host query reset");
+
+        return nullptr;
+    }
+
     if (scheduler && scheduler->Drain(&queueVK, false) != Result::SUCCESS)
         return nullptr;
 

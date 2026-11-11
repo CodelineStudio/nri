@@ -732,6 +732,7 @@ DeviceVK::~DeviceVK() {
         Destroy(context);
 
     Destroy(m_LegacyScheduler);
+    Destroy(m_QueryResetQueue);
 
     for (FramebufferCacheEntry& framebuffer : m_Framebuffers) {
         if (framebuffer.handle)
@@ -971,6 +972,12 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 #if NRI_COMPATIBILITY_NO_TIMELINE
     desiredDeviceExts.erase(std::remove_if(desiredDeviceExts.begin(), desiredDeviceExts.end(), [](const char* extension) {
         return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0;
+    }), desiredDeviceExts.end());
+#endif
+
+#if NRI_COMPATIBILITY_NO_HOST_RESET
+    desiredDeviceExts.erase(std::remove_if(desiredDeviceExts.begin(), desiredDeviceExts.end(), [](const char* extension) {
+        return strcmp(extension, VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME) == 0;
     }), desiredDeviceExts.end());
 #endif
 
@@ -1245,6 +1252,12 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     TimelineSemaphoreFeatures.timelineSemaphore = VK_FALSE;
 #endif
 
+#if NRI_COMPATIBILITY_NO_HOST_RESET
+    NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "No-host-reset fixture requires an NRI-owned device");
+    features12.hostQueryReset = VK_FALSE;
+    HostQueryResetFeatures.hostQueryReset = VK_FALSE;
+#endif
+
     m_IsSupported.timelineSemaphore = features12.timelineSemaphore;
     m_IsSupported.hostQueryReset = features12.hostQueryReset;
     m_IsSupported.formatFeatureFlags2 = m_MinorVersion >= 3 || IsExtensionSupported(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME, desiredDeviceExts);
@@ -1297,8 +1310,31 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 
     m_IsMemoryZeroInitializationEnabled = desc.enableMemoryZeroInitialization && ZeroInitializeDeviceMemoryFeatures.zeroInitializeDeviceMemory;
 
-    NRI_RETURN_ON_FAILURE(this, !isWrapper || m_IsSupported.timelineSemaphore, Result::UNSUPPORTED, "Wrapped devices without native timeline semaphores are not supported");
-    NRI_RETURN_ON_FAILURE(this, m_IsSupported.hostQueryReset, Result::UNSUPPORTED, "Host query reset fallback is not implemented yet; hostQueryReset is currently required");
+    const bool needsScheduler = !m_IsSupported.timelineSemaphore || !m_IsSupported.hostQueryReset;
+    NRI_RETURN_ON_FAILURE(this, !isWrapper || !needsScheduler, Result::UNSUPPORTED, "Wrapped devices require native timeline semaphores and host query reset");
+
+    uint32_t queryResetFamily = INVALID_FAMILY_INDEX;
+
+    if (!m_IsSupported.hostQueryReset) {
+        // Reuse a requested graphics/compute family, including queue zero when
+        // it is the only physical queue. Copy-only devices get one internal
+        // reset-capable queue; no spare queue within a family is required.
+        for (uint32_t i = 0; i < desc.queueFamilyNum; i++) {
+            uint32_t family = queueFamilyIndices[(size_t)desc.queueFamilies[i].queueType];
+
+            if (desc.queueFamilies[i].queueNum && family != INVALID_FAMILY_INDEX && (familyProps2[family].queueFamilyProperties.queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))) {
+                queryResetFamily = family;
+                break;
+            }
+        }
+
+        for (uint32_t i = 0; i < familyNum && queryResetFamily == INVALID_FAMILY_INDEX; i++) {
+            if (familyProps2[i].queueFamilyProperties.queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT))
+                queryResetFamily = i;
+        }
+
+        NRI_RETURN_ON_FAILURE(this, queryResetFamily != INVALID_FAMILY_INDEX, Result::UNSUPPORTED, "Host query reset emulation requires a graphics or compute queue family");
+    }
 
     if (!m_IsSupported.synchronization2)
         NRI_REPORT_INFO(this, "'synchronization2' is not supported, using legacy barriers and queue submission");
@@ -1337,6 +1373,25 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 
             deviceCreateInfo.queueCreateInfoCount = BuildQueueCreateInfos(desc.queueFamilies, desc.queueFamilyNum, queueFamilyIndices, queueCreateInfos, queuePriorities);
 
+            if (queryResetFamily != INVALID_FAMILY_INDEX) {
+                uint32_t index = 0;
+
+                for (; index < deviceCreateInfo.queueCreateInfoCount; index++) {
+                    if (queueCreateInfos[index].queueFamilyIndex == queryResetFamily)
+                        break;
+                }
+
+                if (index == deviceCreateInfo.queueCreateInfoCount) {
+                    NRI_CHECK(index < queueCreateInfos.size(), "No slot for internal query reset queue");
+                    auto& resetInfo = queueCreateInfos[index];
+                    resetInfo = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+                    resetInfo.queueFamilyIndex = queryResetFamily;
+                    resetInfo.queueCount = 1;
+                    resetInfo.pQueuePriorities = queuePriorities[index].data();
+                    deviceCreateInfo.queueCreateInfoCount++;
+                }
+            }
+
             VkResult vkResult = m_VK.CreateDevice(m_PhysicalDevice, &deviceCreateInfo, m_AllocationCallbackPtr, &m_Device);
             NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkCreateDevice");
 
@@ -1353,8 +1408,8 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 #if NRI_COMPATIBILITY_DIAGNOSTICS
             VkPhysicalDeviceProperties2 observedProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
             m_VK.GetPhysicalDeviceProperties2(m_PhysicalDevice, &observedProperties);
-            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device\",\"physical_api\":%u,\"effective_minor\":%u,\"timeline\":%u,\"synchronization2\":%u,\"dynamic_rendering\":%u,\"device_address\":%u,\"descriptor_indexing\":%u,\"draw_indirect_count\":%u,\"format_feature_flags2\":%u,\"extension_count\":%u}",
-                observedProperties.properties.apiVersion, m_MinorVersion, features12.timelineSemaphore, features13.synchronization2, features13.dynamicRendering, m_IsSupported.deviceAddress, m_IsSupported.descriptorIndexing, m_IsSupported.drawIndirectCount, m_IsSupported.formatFeatureFlags2, deviceCreateInfo.enabledExtensionCount);
+            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device\",\"physical_api\":%u,\"effective_minor\":%u,\"timeline\":%u,\"host_query_reset\":%u,\"synchronization2\":%u,\"dynamic_rendering\":%u,\"device_address\":%u,\"descriptor_indexing\":%u,\"draw_indirect_count\":%u,\"format_feature_flags2\":%u,\"extension_count\":%u}",
+                observedProperties.properties.apiVersion, m_MinorVersion, features12.timelineSemaphore, features12.hostQueryReset, features13.synchronization2, features13.dynamicRendering, m_IsSupported.deviceAddress, m_IsSupported.descriptorIndexing, m_IsSupported.drawIndirectCount, m_IsSupported.formatFeatureFlags2, deviceCreateInfo.enabledExtensionCount);
 
             for (const char* extension : desiredDeviceExts)
                 NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device_extension\",\"name\":\"%s\"}", extension);
@@ -1392,7 +1447,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
         }
     }
 
-    if (!m_IsSupported.timelineSemaphore)
+    if (needsScheduler)
         m_LegacyScheduler = Allocate<LegacyQueueSchedulerVK>(GetAllocationCallbacks(), *this);
 
     // Create queues
@@ -1449,6 +1504,19 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             } else
                 m_Desc.adapterDesc.queueNum[(size_t)queueFamilyDesc.queueType] = 0;
         }
+    }
+
+    if (queryResetFamily != INVALID_FAMILY_INDEX) {
+        VkDeviceQueueInfo2 queueInfo = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_INFO_2};
+        queueInfo.queueFamilyIndex = queryResetFamily;
+        VkQueue handle = VK_NULL_HANDLE;
+        m_VK.GetDeviceQueue2(m_Device, &queueInfo, &handle);
+        QueueType type = (familyProps2[queryResetFamily].queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) ? QueueType::GRAPHICS : QueueType::COMPUTE;
+        Lock* sharedLock = FindQueueLock(m_QueueFamilies, handle);
+        Result result = CreateImplementation<QueueVK>(m_QueryResetQueue, type, queryResetFamily, handle, sharedLock);
+
+        if (result != Result::SUCCESS)
+            return result;
     }
 
     { // Desc
@@ -2070,7 +2138,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             m_UnsupportedPipelineStages |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
         }
 
-        m_Desc.features.lowLatency = m_IsSupported.timelineSemaphore && m_IsSupported.presentId != 0 && IsExtensionSupported(VK_NV_LOW_LATENCY_2_EXTENSION_NAME, desiredDeviceExts);
+        m_Desc.features.lowLatency = !needsScheduler && m_IsSupported.presentId != 0 && IsExtensionSupported(VK_NV_LOW_LATENCY_2_EXTENSION_NAME, desiredDeviceExts);
         m_Desc.features.componentSwizzle = true;
         m_Desc.features.independentFrontAndBackStencilReferenceAndMasks = true;
         m_Desc.features.filterOpMinMax = features12.samplerFilterMinmax;
@@ -3496,7 +3564,7 @@ NRI_INLINE void DeviceVK::DestroyFramebuffers(VkImageView imageView) {
 }
 
 bool DeviceVK::IsSharedFenceSupported(VkSemaphoreType type) const {
-    if (!m_IsSupported.timelineSemaphore && type == VK_SEMAPHORE_TYPE_TIMELINE)
+    if (m_LegacyScheduler && type == VK_SEMAPHORE_TYPE_TIMELINE)
         return false;
 
     VkSemaphoreTypeCreateInfo semaphoreType = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};

@@ -14,6 +14,9 @@ LegacyCompletionVK::~LegacyCompletionVK() {
 
     if (fence)
         vk.DestroyFence(device, fence, device.GetVkAllocationCallbacks());
+
+    if (commandPool)
+        vk.DestroyCommandPool(device, commandPool, device.GetVkAllocationCallbacks());
 }
 
 LegacyFenceStateVK::LegacyFenceStateVK(const StdAllocator<uint8_t>& allocator, uint64_t initial)
@@ -525,4 +528,79 @@ Result LegacyQueueSchedulerVK::Drain(QueueVK* queue, bool completion) {
 
         m_Wakeup.wait_for(lock, std::chrono::milliseconds(1));
     }
+}
+
+Result LegacyQueueSchedulerVK::ResetQueries(VkQueryPool queryPool, uint32_t offset, uint32_t num) {
+    std::unique_lock<std::mutex> lock(m_Mutex);
+
+    if (m_Failure != Result::SUCCESS)
+        return m_Failure;
+
+    // All logical future waits stay on the host on this profile, even when the
+    // device supports native timelines. Submit reset work ahead of deferred FIFO
+    // heads, never through QueueVK::Submit. Every already-native dependency has
+    // an accepted producer, so a future user signal cannot block this reset.
+    QueueVK& queue = *m_Device.GetQueryResetQueue();
+    const auto& vk = m_Device.GetDispatchTable();
+    std::shared_ptr<LegacyCompletionVK> completion;
+    Result result = CreateCompletion(completion);
+
+    if (result != Result::SUCCESS)
+        return result;
+
+    VkCommandPoolCreateInfo poolInfo = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    poolInfo.queueFamilyIndex = queue.GetFamilyIndex();
+    result = Fail(vk.CreateCommandPool(m_Device, &poolInfo, m_Device.GetVkAllocationCallbacks(), &completion->commandPool), "query reset CreateCommandPool");
+
+    if (result != Result::SUCCESS)
+        return result;
+
+    VkCommandBufferAllocateInfo allocation = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    allocation.commandPool = completion->commandPool;
+    allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocation.commandBufferCount = 1;
+    VkCommandBuffer command = VK_NULL_HANDLE;
+    result = Fail(vk.AllocateCommandBuffers(m_Device, &allocation, &command), "query reset AllocateCommandBuffers");
+
+    if (result != Result::SUCCESS)
+        return result;
+
+    VkCommandBufferBeginInfo beginInfo = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    result = Fail(vk.BeginCommandBuffer(command, &beginInfo), "query reset BeginCommandBuffer");
+
+    if (result != Result::SUCCESS)
+        return result;
+
+    vk.CmdResetQueryPool(command, queryPool, offset, num);
+    result = Fail(vk.EndCommandBuffer(command), "query reset EndCommandBuffer");
+
+    if (result != Result::SUCCESS)
+        return result;
+
+    VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &command;
+    result = NativeSubmit(queue, submit, completion);
+
+    if (result != Result::SUCCESS)
+        return result;
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(NRI_TIMEOUT_FENCE);
+
+    while (!completion->complete) {
+        result = Poll(true);
+
+        if (result != Result::SUCCESS)
+            return result;
+
+        if (std::chrono::steady_clock::now() >= deadline && !completion->complete)
+            return Fail(VK_ERROR_UNKNOWN, "query reset completion timeout");
+
+        if (!completion->complete)
+            m_Wakeup.wait_for(lock, std::chrono::milliseconds(1));
+    }
+
+    return m_Failure;
 }

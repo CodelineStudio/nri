@@ -12,6 +12,10 @@ if(NOT NRI_ENABLE_VK_SUPPORT)
 endif()
 
 option(NRI_COMPATIBILITY_NO_TIMELINE "Disable native timeline features and test binary value-fence scheduling" OFF)
+option(NRI_COMPATIBILITY_NO_HOST_RESET "Disable native host query reset and test ordered synchronous reset emulation" OFF)
+if(NRI_COMPATIBILITY_NO_HOST_RESET)
+    target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_NO_HOST_RESET=1)
+endif()
 set(NRI_COMPATIBILITY_FAIL_SUBMIT 0 CACHE STRING "Test-only scheduler native-submit ordinal to fail with device-memory exhaustion (0=off)")
 if(NOT NRI_COMPATIBILITY_FAIL_SUBMIT MATCHES "^[0-9]+$")
     message(FATAL_ERROR "FAIL_SUBMIT must be a nonnegative integer")
@@ -56,8 +60,13 @@ endif()
 
 add_executable(NRICompatibilityBaseline baseline.cpp)
 add_executable(NRICompatibilityFenceSequences fence_sequences.cpp)
+add_executable(NRICompatibilityQueryReset query_reset.cpp)
 find_package(Threads REQUIRED)
 target_link_libraries(NRICompatibilityFenceSequences PRIVATE NRI Threads::Threads)
+target_link_libraries(NRICompatibilityQueryReset PRIVATE NRI Threads::Threads)
+target_compile_features(NRICompatibilityQueryReset PRIVATE cxx_std_17)
+set_target_properties(NRICompatibilityQueryReset PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_definitions(NRICompatibilityQueryReset PRIVATE NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
 target_compile_features(NRICompatibilityFenceSequences PRIVATE cxx_std_17)
 set_target_properties(NRICompatibilityFenceSequences PROPERTIES CXX_EXTENSIONS OFF)
 target_compile_definitions(NRICompatibilityFenceSequences PRIVATE NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
@@ -68,6 +77,7 @@ add_executable(NRILegacySynchronizationTests legacy_sync.cpp)
 target_compile_features(NRILegacySynchronizationTests PRIVATE cxx_std_17)
 include(FetchContent)
 FetchContent_GetProperties(vulkan_headers SOURCE_DIR vulkan_headers_SOURCE_DIR)
+target_include_directories(NRICompatibilityQueryReset PRIVATE "${vulkan_headers_SOURCE_DIR}/include")
 target_include_directories(NRILegacySynchronizationTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../Source/VK" "${vulkan_headers_SOURCE_DIR}/include")
 add_test(NAME NRILegacySynchronizationTests COMMAND NRILegacySynchronizationTests)
 # Test-only provenance: emit what NRI actually enabled, not a second probe device.
@@ -90,7 +100,14 @@ target_compile_definitions(NRICompatibilityFenceSequences PRIVATE
     NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
     NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 
+target_compile_definitions(NRICompatibilityQueryReset PRIVATE
+    NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+    NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
+
 if(NOT NRI_STATIC_LIBRARY)
+    add_custom_command(TARGET NRICompatibilityQueryReset POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityQueryReset>"
+        VERBATIM)
     add_custom_command(TARGET NRICompatibilityFenceSequences POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityFenceSequences>"
         VERBATIM)
