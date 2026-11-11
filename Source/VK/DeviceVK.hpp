@@ -1257,6 +1257,17 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     Synchronization2Features.synchronization2 = VK_FALSE;
 #endif
 
+#if NRI_COMPATIBILITY_NO_INDIRECT_FIRST_INSTANCE
+    NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "No-indirect-first-instance fixture requires an NRI-owned device");
+    features.features.drawIndirectFirstInstance = VK_FALSE;
+#endif
+
+#if NRI_COMPATIBILITY_NO_SHADER_DRAW_PARAMETERS
+    NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "No-shader-draw-parameters fixture requires an NRI-owned device");
+    features11.shaderDrawParameters = VK_FALSE;
+    individualShaderDrawParametersFeatures.shaderDrawParameters = VK_FALSE;
+#endif
+
 #if NRI_COMPATIBILITY_NO_INDIRECT_OPTIONALS
     NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "No-indirect-optionals fixture requires an NRI-owned device");
     features.features.multiDrawIndirect = VK_FALSE;
@@ -1434,6 +1445,9 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
                 NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device_extension\",\"name\":\"%s\"}", extension);
 #endif
         }
+
+        if (!isWrapper)
+            m_DrawCapabilities = {features.features.multiDrawIndirect != 0, features.features.drawIndirectFirstInstance != 0, features11.shaderDrawParameters != 0, features12.drawIndirectCount != 0};
 
         Result res = ResolveDispatchTable(desiredDeviceExts);
         if (res != Result::SUCCESS)

@@ -40,9 +40,12 @@ Varying stateParametersVertexMain(float2 position : POSITION, float2 uv : TEXCOO
                                  uint drawIndex : SV_DrawIndex) {
     uint corner = uint(position.x > 0) + uint(position.y > 0) * 2;
     int expectedLocalVertex = int(corner) + (drawParameters.baseVertex > 0 ? 1 : 3);
-    uint expectedLocalInstance = instanceData.x < 0 ? 0 : 1;
+    bool indirect = (drawParameters.flags & 4) != 0;
+    uint expectedLocalInstance = indirect ? 0 : (instanceData.x < 0 ? 0 : 1);
+    uint expectedBaseInstance = indirect ? (instanceData.x < 0 ? 1 : 2) : 1;
+    uint expectedDrawIndex = indirect ? (instanceData.x < 0 ? 0 : 1) : 0;
     bool valid = vertexId == expectedLocalVertex && instanceId == expectedLocalInstance &&
-                 baseVertex == drawParameters.baseVertex && baseInstance == 1 && drawIndex == 0;
+                 baseVertex == drawParameters.baseVertex && baseInstance == expectedBaseInstance && drawIndex == expectedDrawIndex;
     return buildStateVertex(position, uv, instanceData, uint(vertexId + baseVertex), instanceId + baseInstance, valid);
 }
 

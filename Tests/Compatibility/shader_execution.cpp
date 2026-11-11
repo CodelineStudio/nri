@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: MIT
 #include "NRI.h"
 #include "Extensions/NRIDeviceCreation.h"
+#include "Extensions/NRIDrawCapabilitiesVK.h"
 #include "compiled_shaders.h"
 #include "graphics_state.h"
 #include "pipeline_cache_io.h"
+
+extern "C" const void* QueryDrawCapabilitiesFromC(const void* device);
 
 #include <array>
 #include <atomic>
@@ -57,6 +60,7 @@ struct Fixture {
     uint32_t expectedRejections = 0, multiDrawCalls = 0, countDrawCalls = 0, splitDrawCalls = 0;
     uint32_t drawLimit = 0;
     bool drawCountSupported = false;
+    nri::DrawCapabilitiesVKDesc drawCapabilities = {};
 
     static void NRI_CALL Message(nri::Message severity, const char* file, uint32_t line, const char* text, void* user) {
         auto& fixture = *(Fixture*)user;
@@ -105,6 +109,20 @@ struct Fixture {
         ready = true;
         validationEnabled = validation;
         const auto& desc = core.GetDeviceDesc(*device);
+        nri::DrawCapabilitiesVKInterface query = {}, cQuery = {};
+
+        if (!Check(nri::nriGetInterface(*device, NRI_INTERFACE(nri::DrawCapabilitiesVKInterface), &query) == nri::Result::SUCCESS, "enabled Vulkan draw capabilities") ||
+            !Check(nri::nriGetInterface(*device, "NriDrawCapabilitiesVKInterface", sizeof(cQuery), &cQuery) == nri::Result::SUCCESS, "C interface name"))
+            return false;
+
+        drawCapabilities = query.GetDrawCapabilitiesVK(*device);
+
+        if (!Check(&query.GetDrawCapabilitiesVK(*device) == &cQuery.GetDrawCapabilitiesVK(*device) &&
+                   &query.GetDrawCapabilitiesVK(*device) == QueryDrawCapabilitiesFromC(device) &&
+                   drawCapabilities.shaderDrawParameters == desc.shaderFeatures.drawParameters &&
+                   drawCapabilities.drawIndirectCount == desc.features.drawIndirectCount, "immutable enabled draw capabilities"))
+            return false;
+
         drawLimit = desc.other.drawIndirectMaxNum;
         drawCountSupported = desc.features.drawIndirectCount;
         deviceId = desc.adapterDesc.deviceId;
@@ -628,19 +646,21 @@ int main(int argc, char** argv) {
     for (uint32_t cycle = 0; cycle < 8 && passed; cycle++)
         passed = fixture.Execute(cycle);
 
-    uint32_t graphicsCases = 0, maxChannelError = 0, parameterCases = 0;
+    uint32_t graphicsCases = 0, maxChannelError = 0, parameterCases = 0, indirectInstanceCases = 0, multiParameterCases = 0;
 
     if (passed)
-        passed = RunGraphicsStates(*fixture.device, fixture.core, *fixture.queue, fixture.errors, fixture.pipelineCache, graphicsCases, maxChannelError, parameterCases);
+        passed = RunGraphicsStates(*fixture.device, fixture.core, *fixture.queue, fixture.errors, fixture.pipelineCache, graphicsCases, maxChannelError, parameterCases, indirectInstanceCases, multiParameterCases);
 
     if (passed)
         passed = SavePipelineCache(*fixture.device, fixture.core, cacheOutput, fixture.pipelineCache);
 
     passed = fixture.Cleanup() && passed && fixture.errors.load() == 0;
     std::printf("NRI_INDIRECT_FEATURES {\"draw_limit\":%u,\"multi_draw_calls\":%u,\"count_draw_calls\":%u,\"split_draw_calls\":%u,\"expected_rejections\":%u}\n", fixture.drawLimit, fixture.multiDrawCalls, fixture.countDrawCalls, fixture.splitDrawCalls, fixture.expectedRejections);
+    const auto& enabled = fixture.drawCapabilities;
+    std::printf("NRI_DRAW_CAPABILITIES {\"multi_draw_indirect\":%u,\"draw_indirect_first_instance\":%u,\"shader_draw_parameters\":%u,\"draw_indirect_count\":%u}\n", uint32_t(enabled.multiDrawIndirect), uint32_t(enabled.drawIndirectFirstInstance), uint32_t(enabled.shaderDrawParameters), uint32_t(enabled.drawIndirectCount));
     const auto& cache = fixture.pipelineCache;
     std::printf("NRI_PIPELINE_CACHE {\"loaded_bytes\":%llu,\"saved_bytes\":%llu,\"rejected_headers\":%u,\"cache_control\":%s,\"hit_required\":%s,\"create_ms\":%.3f,\"pipeline_ms\":%.3f}\n", (unsigned long long)cache.loadedBytes, (unsigned long long)cache.savedBytes, cache.rejectedHeaders, cache.control ? "true" : "false", cache.requireHit ? "true" : "false", cache.createMilliseconds, cache.pipelineMilliseconds);
-    int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_shader_execution\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"indirect_cycles\":%u,\"indexed_offset_cases\":%u,\"graphics_state_cases\":%u,\"draw_parameter_cases\":%u,\"max_channel_error\":%u,\"legacy_sync_forced\":%s,\"shader_manifest\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.completedCycles, fixture.completedCycles, graphicsCases, graphicsCases, parameterCases, maxChannelError, NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", shader_fixture::manifest);
+    int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_shader_execution\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"indirect_cycles\":%u,\"indexed_offset_cases\":%u,\"graphics_state_cases\":%u,\"draw_parameter_cases\":%u,\"indirect_first_instance_cases\":%u,\"multi_draw_parameter_cases\":%u,\"max_channel_error\":%u,\"legacy_sync_forced\":%s,\"shader_manifest\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.completedCycles, fixture.completedCycles, graphicsCases, graphicsCases, parameterCases, indirectInstanceCases, multiParameterCases, maxChannelError, NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", shader_fixture::manifest);
 
     if (written < 0 || std::fflush(stdout) != 0)
         return 3;

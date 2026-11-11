@@ -228,6 +228,7 @@ Result DeviceVal::Create() {
     result = deviceBaseImpl.FillFunctionTable(m_iHelperImpl);
     NRI_RETURN_ON_FAILURE(this, result == Result::SUCCESS, result, "Failed to get 'HelperInterface' interface");
 
+    m_IsExtSupported.drawCapabilitiesVK = deviceBaseImpl.FillFunctionTable(m_iDrawCapabilitiesVKImpl) == Result::SUCCESS;
     m_IsExtSupported.descriptorHeap = deviceBaseImpl.FillFunctionTable(m_iDescriptorHeapImpl) == Result::SUCCESS;
     m_IsExtSupported.lowLatency = deviceBaseImpl.FillFunctionTable(m_iLowLatencyImpl) == Result::SUCCESS;
     m_IsExtSupported.meshShader = deviceBaseImpl.FillFunctionTable(m_iMeshShaderImpl) == Result::SUCCESS;

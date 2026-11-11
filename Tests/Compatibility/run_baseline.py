@@ -24,6 +24,8 @@ def main():
     parser.add_argument("--require-native-validation", action="store_true")
     parser.add_argument("--require-legacy-sync", action="store_true")
     parser.add_argument("--require-no-indirect-optionals", action="store_true")
+    parser.add_argument("--require-no-indirect-first-instance", action="store_true")
+    parser.add_argument("--require-no-shader-draw-parameters", action="store_true")
     parser.add_argument("--require-no-timeline", action="store_true")
     parser.add_argument("--require-no-host-reset", action="store_true")
     parser.add_argument("--require-legacy-wsi", action="store_true")
@@ -115,6 +117,15 @@ def main():
                         raise ValueError('Missing indirect feature execution counters')
                     indirect = receipt['indirect_features'] = records[0]
                     device = manifest['device']
+                    query_records = [json.loads(line.split('NRI_DRAW_CAPABILITIES ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_DRAW_CAPABILITIES ')]
+                    fields = ('multi_draw_indirect', 'draw_indirect_first_instance', 'shader_draw_parameters', 'draw_indirect_count')
+                    if len(query_records) != 1 or query_records[0] != {key: device[key] for key in fields}:
+                        raise ValueError('Public enabled draw capabilities differ from actual device creation')
+                    receipt['draw_capabilities'] = query_records[0]
+                    instance_cases = 8 if device['draw_indirect_first_instance'] else 0
+                    multi_parameter_cases = 8 if all(device[key] for key in fields[:3]) else 0
+                    if receipt['fixture'].get('indirect_first_instance_cases') != instance_cases or receipt['fixture'].get('multi_draw_parameter_cases') != multi_parameter_cases:
+                        raise ValueError('Indirect firstInstance or multi-draw DrawIndex execution incomplete')
                     parameter_cases = 8 if device.get('shader_draw_parameters') == 1 else 0
                     if receipt['fixture'].get('draw_parameter_cases') != parameter_cases:
                         raise ValueError('Draw-parameter capability-selected execution was incomplete')
@@ -127,6 +138,10 @@ def main():
                     actual = tuple(indirect[k] for k in ('multi_draw_calls', 'count_draw_calls', 'split_draw_calls', 'expected_rejections'))
                     if actual != expected:
                         raise ValueError('Indirect capability-selected execution was incomplete')
+                if args.require_no_indirect_first_instance and manifest['device'].get('draw_indirect_first_instance') != 0:
+                    raise ValueError('Indirect firstInstance was not disabled')
+                if args.require_no_shader_draw_parameters and manifest['device'].get('shader_draw_parameters') != 0:
+                    raise ValueError('Shader draw parameters were not disabled')
                 if args.require_no_indirect_optionals:
                     if any(manifest['device'].get(k) != 0 for k in ('multi_draw_indirect', 'draw_indirect_first_instance', 'shader_draw_parameters')):
                         raise ValueError('Indirect optional features were not disabled before device creation')

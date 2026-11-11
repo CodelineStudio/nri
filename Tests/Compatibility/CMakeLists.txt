@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.30)
-project(NRICompatibility LANGUAGES CXX)
+project(NRICompatibility LANGUAGES C CXX)
 
 # Configure independently: cmake -S Tests/Compatibility -B _Build/Compatibility.
 # Backend/dependency options remain owned by NRI and can be passed on the CLI.
@@ -11,6 +11,14 @@ if(NOT NRI_ENABLE_VK_SUPPORT)
     message(FATAL_ERROR "NRICompatibilityBaseline requires NRI_ENABLE_VK_SUPPORT")
 endif()
 
+option(NRI_COMPATIBILITY_NO_INDIRECT_FIRST_INSTANCE "Disable only indirect first instance" OFF)
+option(NRI_COMPATIBILITY_NO_SHADER_DRAW_PARAMETERS "Disable only shader draw parameters" OFF)
+if(NRI_COMPATIBILITY_NO_INDIRECT_FIRST_INSTANCE)
+    target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_NO_INDIRECT_FIRST_INSTANCE=1)
+endif()
+if(NRI_COMPATIBILITY_NO_SHADER_DRAW_PARAMETERS)
+    target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_NO_SHADER_DRAW_PARAMETERS=1)
+endif()
 option(NRI_COMPATIBILITY_NO_INDIRECT_OPTIONALS "Disable multi-draw, indirect first instance and shader draw parameters on the actual test device" OFF)
 if(NRI_COMPATIBILITY_NO_INDIRECT_OPTIONALS)
     target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_NO_INDIRECT_OPTIONALS=1)
@@ -197,7 +205,7 @@ if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_
             "${NRI_COMPATIBILITY_SLANGC}" "${NRI_COMPATIBILITY_SPIRV_VAL}" "${NRI_COMPATIBILITY_SPIRV_DIS}"
             ${shader_runtime_dependencies} ${shader_input_dependencies}
         VERBATIM)
-    add_executable(NRICompatibilityShaderExecution shader_execution.cpp graphics_state.cpp graphics_state.h pipeline_cache_io.cpp pipeline_cache_io.h "${shader_output}/compiled_shaders.h")
+    add_executable(NRICompatibilityShaderExecution shader_execution.cpp draw_capabilities_c.c graphics_state.cpp graphics_state.h pipeline_cache_io.cpp pipeline_cache_io.h "${shader_output}/compiled_shaders.h")
     target_compile_features(NRICompatibilityShaderExecution PRIVATE cxx_std_17)
     set_target_properties(NRICompatibilityShaderExecution PROPERTIES CXX_EXTENSIONS OFF)
     target_include_directories(NRICompatibilityShaderExecution PRIVATE "${shader_output}")

@@ -289,6 +289,7 @@ struct DeviceVK final : public DeviceBase {
     Result ReportDeviceLostInfo(DeviceLostDump& deviceLostDump) override;
     Result FillFunctionTable(CoreInterface& table) const override;
     Result FillFunctionTable(DescriptorHeapInterface& table) const override;
+    Result FillFunctionTable(DrawCapabilitiesVKInterface& table) const override;
     Result FillFunctionTable(HelperInterface& table) const override;
     Result FillFunctionTable(LowLatencyInterface& table) const override;
     Result FillFunctionTable(MeshShaderInterface& table) const override;
@@ -324,6 +325,11 @@ struct DeviceVK final : public DeviceBase {
     Result ReadbackTextureToHostMemory(QueueVK& queue, const ReadbackTextureToHostMemoryDesc* copyDescs, uint32_t copyDescNum);
     Result BindBufferMemory(const BindBufferMemoryDesc* bindBufferMemoryDescs, uint32_t bindBufferMemoryDescNum);
     Result BindTextureMemory(const BindTextureMemoryDesc* bindTextureMemoryDescs, uint32_t bindTextureMemoryDescNum);
+
+    inline const DrawCapabilitiesVKDesc& GetDrawCapabilities() const {
+        return m_DrawCapabilities;
+    }
+
     Result QueryVideoMemoryInfo(MemoryLocation memoryLocation, VideoMemoryInfo& videoMemoryInfo) const;
     Result BindAccelerationStructureMemory(const BindAccelerationStructureMemoryDesc* bindAccelerationStructureMemoryDescs, uint32_t bindAccelerationStructureMemoryDescNum);
     Result BindMicromapMemory(const BindMicromapMemoryDesc* bindMicromapMemoryDescs, uint32_t bindMicromapMemoryDescNum);
@@ -370,6 +376,7 @@ private:
     VKBindingOffsets m_BindingOffsets = {};
     CoreInterface m_iCore = {};
     DeviceDesc m_Desc = {};
+    DrawCapabilitiesVKDesc m_DrawCapabilities = {};
     Library* m_Loader = nullptr;
     VkDevice m_Device = VK_NULL_HANDLE;
     VkInstance m_Instance = VK_NULL_HANDLE;

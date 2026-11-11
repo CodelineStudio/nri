@@ -2592,6 +2592,25 @@ Result DeviceVal::FillFunctionTable(WrapperMetalInterface& table) const {
 #pragma endregion
 
 //============================================================================================================================================================================================
+#pragma region[  DrawCapabilitiesVK  ]
+
+static const DrawCapabilitiesVKDesc& NRI_CALL GetDrawCapabilitiesVK(const Device& device) {
+    const auto& deviceVal = (const DeviceVal&)device;
+
+    return deviceVal.GetDrawCapabilitiesVKInterfaceImpl().GetDrawCapabilitiesVK(deviceVal.GetImpl());
+}
+
+Result DeviceVal::FillFunctionTable(DrawCapabilitiesVKInterface& table) const {
+    if (!m_IsExtSupported.drawCapabilitiesVK)
+        return Result::UNSUPPORTED;
+
+    table.GetDrawCapabilitiesVK = ::GetDrawCapabilitiesVK;
+
+    return Result::SUCCESS;
+}
+
+#pragma endregion
+
 #pragma region[  WrapperVK  ]
 
 #if NRI_ENABLE_VK_SUPPORT

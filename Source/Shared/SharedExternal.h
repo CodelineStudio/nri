@@ -37,6 +37,7 @@ typedef uint32_t DXGI_FORMAT;
 
 #include "Extensions/NRIDescriptorHeap.h"
 #include "Extensions/NRIDeviceCreation.h"
+#include "Extensions/NRIDrawCapabilitiesVK.h"
 #include "Extensions/NRIHelper.h"
 #include "Extensions/NRIImgui.h"
 #include "Extensions/NRILowLatency.h"

@@ -728,6 +728,11 @@ NRI_API Result NRI_CALL nriGetInterface(const Device& device, const char* interf
         realInterfaceSize = sizeof(ImguiInterface);
         if (realInterfaceSize == interfaceSize)
             result = deviceBase.FillFunctionTable(*(ImguiInterface*)interfacePtr);
+    } else if (hash == Hash(NRI_STRINGIFY(DrawCapabilitiesVKInterface))) {
+        realInterfaceSize = sizeof(DrawCapabilitiesVKInterface);
+
+        if (realInterfaceSize == interfaceSize)
+            result = deviceBase.FillFunctionTable(*(DrawCapabilitiesVKInterface*)interfacePtr);
     } else if (hash == Hash(NRI_STRINGIFY(HelperInterface))) {
         realInterfaceSize = sizeof(HelperInterface);
         if (realInterfaceSize == interfaceSize)

@@ -5,16 +5,17 @@
 namespace nri {
 
 struct IsExtSupported {
-    uint32_t lowLatency     : 1;
-    uint32_t meshShader     : 1;
-    uint32_t rayTracing     : 1;
-    uint32_t video          : 1;
-    uint32_t swapChain      : 1;
-    uint32_t wrapperD3D11   : 1;
-    uint32_t wrapperD3D12   : 1;
-    uint32_t wrapperMetal   : 1;
-    uint32_t wrapperVK      : 1;
-    uint32_t descriptorHeap : 1;
+    uint32_t lowLatency         : 1;
+    uint32_t meshShader         : 1;
+    uint32_t rayTracing         : 1;
+    uint32_t video              : 1;
+    uint32_t swapChain          : 1;
+    uint32_t wrapperD3D11       : 1;
+    uint32_t wrapperD3D12       : 1;
+    uint32_t wrapperMetal       : 1;
+    uint32_t wrapperVK          : 1;
+    uint32_t descriptorHeap     : 1;
+    uint32_t drawCapabilitiesVK : 1;
 };
 
 struct DeviceVal final : public DeviceBase {
@@ -31,6 +32,10 @@ struct DeviceVal final : public DeviceBase {
 
     inline const CoreInterface& GetCoreInterfaceImpl() const {
         return m_iCoreImpl;
+    }
+
+    inline const DrawCapabilitiesVKInterface& GetDrawCapabilitiesVKInterfaceImpl() const {
+        return m_iDrawCapabilitiesVKImpl;
     }
 
     inline const HelperInterface& GetHelperInterfaceImpl() const {
@@ -113,6 +118,7 @@ struct DeviceVal final : public DeviceBase {
     void Destruct() override;
     Result FillFunctionTable(CoreInterface& table) const override;
     Result FillFunctionTable(DescriptorHeapInterface& table) const override;
+    Result FillFunctionTable(DrawCapabilitiesVKInterface& table) const override;
     Result FillFunctionTable(HelperInterface& table) const override;
     Result FillFunctionTable(LowLatencyInterface& table) const override;
     Result FillFunctionTable(MeshShaderInterface& table) const override;
@@ -234,6 +240,7 @@ private:
     WrapperD3D12Interface m_iWrapperD3D12Impl = {};
     WrapperMetalInterface m_iWrapperMetalImpl = {};
     WrapperVKInterface m_iWrapperVKImpl = {};
+    DrawCapabilitiesVKInterface m_iDrawCapabilitiesVKImpl = {};
 
     union {
         uint32_t m_IsExtSupportedStorage = 0;

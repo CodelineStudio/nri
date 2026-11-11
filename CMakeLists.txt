@@ -1229,6 +1229,7 @@ set_source_files_properties("Include/NRI.metal"
 set(NRI_EXTENSIONS
     "Include/Extensions/NRIDescriptorHeap.h"
     "Include/Extensions/NRIDeviceCreation.h"
+    "Include/Extensions/NRIDrawCapabilitiesVK.h"
     "Include/Extensions/NRIHelper.h"
     "Include/Extensions/NRIImgui.h"
     "Include/Extensions/NRILowLatency.h"

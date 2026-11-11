@@ -1415,6 +1415,23 @@ Result DeviceVK::FillFunctionTable(UpscalerInterface& table) const {
 #pragma endregion
 
 //============================================================================================================================================================================================
+#pragma region[  DrawCapabilitiesVK  ]
+
+static const DrawCapabilitiesVKDesc& NRI_CALL GetDrawCapabilitiesVK(const Device& device) {
+    return ((const DeviceVK&)device).GetDrawCapabilities();
+}
+
+Result DeviceVK::FillFunctionTable(DrawCapabilitiesVKInterface& table) const {
+    if (!m_OwnsNativeObjects)
+        return Result::UNSUPPORTED;
+
+    table.GetDrawCapabilitiesVK = ::GetDrawCapabilitiesVK;
+
+    return Result::SUCCESS;
+}
+
+#pragma endregion
+
 #pragma region[  WrapperVK  ]
 
 static Result NRI_CALL CreateCommandAllocatorVK(Device& device, const CommandAllocatorVKDesc& commandAllocatorVKDesc, CommandAllocator*& commandAllocator) {

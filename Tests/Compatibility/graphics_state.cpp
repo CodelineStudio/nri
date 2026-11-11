@@ -1,6 +1,7 @@
 // Copyright (c) 2026 CodelineStudio
 // SPDX-License-Identifier: MIT
 #include "graphics_state.h"
+#include "Extensions/NRIDrawCapabilitiesVK.h"
 #include "compiled_shaders.h"
 
 #include <algorithm>
@@ -45,7 +46,7 @@ struct StateCase {
     nri::Queue& queue;
     PipelineCacheRun& cache;
     uint8_t samples;
-    bool linear, premultiplied, drawParameters;
+    bool linear, premultiplied, drawParameters, indirect, multiDraw;
     nri::CommandAllocator* allocator = nullptr;
     nri::CommandBuffer* command = nullptr;
     nri::Fence* fence = nullptr;
@@ -56,8 +57,8 @@ struct StateCase {
     // Color, resolve (also allocated for 1x), depth/stencil, sampled mip/layer.
     std::array<nri::Texture*, 4> images{};
     std::array<nri::Descriptor*, 5> views{};
-    // Texture upload, vertices, instances, indices, image readback.
-    std::array<nri::Buffer*, 5> buffers{};
+    // Texture upload, vertices, instances, indices, image readback, draw arguments.
+    std::array<nri::Buffer*, 6> buffers{};
     uint32_t uploadRow = 0, uploadSlice = 0, readRow = 0, readSlice = 0;
     nri::Format depthFormat = nri::Format::D24_UNORM_S8_UINT;
 
@@ -83,7 +84,7 @@ struct StateCase {
             !Check(core.CreateFence(device, nri::FenceDesc{}, fence) == nri::Result::SUCCESS, "fence"))
             return false;
 
-        const uint64_t sizes[] = {uploadSlice, 8 * 4 * sizeof(float), 3 * 2 * sizeof(float), 8 * sizeof(uint16_t), readSlice};
+        const uint64_t sizes[] = {uploadSlice, 8 * 4 * sizeof(float), 3 * 2 * sizeof(float), 8 * sizeof(uint16_t), readSlice, 2 * sizeof(nri::DrawIndexedDesc)};
 
         for (uint32_t i = 0; i < buffers.size(); i++) {
             nri::BufferDesc desc = {};
@@ -93,6 +94,8 @@ struct StateCase {
                 desc.usage = nri::BufferUsageBits::VERTEX;
             else if (i == 3)
                 desc.usage = nri::BufferUsageBits::INDEX;
+            else if (i == 5)
+                desc.usage = nri::BufferUsageBits::ARGUMENT;
 
             if (!Check(core.CreateCommittedBuffer(device, i == 4 ? nri::MemoryLocation::HOST_READBACK : nri::MemoryLocation::HOST_UPLOAD, 0.0f, desc, buffers[i]) == nri::Result::SUCCESS, "buffer"))
                 return false;
@@ -129,6 +132,15 @@ struct StateCase {
 
             core.UnmapBuffer(*buffers[i]);
         }
+
+        const nri::DrawIndexedDesc arguments[] = {{6, 1, 2, premultiplied ? -1 : 1, 1}, {6, 1, 2, premultiplied ? -1 : 1, 2}};
+        void* mappedArguments = core.MapBuffer(*buffers[5], 0, sizeof(arguments));
+
+        if (!Check(mappedArguments != nullptr, "indirect first-instance argument upload"))
+            return false;
+
+        std::memcpy(mappedArguments, arguments, sizeof(arguments));
+        core.UnmapBuffer(*buffers[5]);
 
         for (uint32_t i = 0; i < images.size(); i++) {
             nri::TextureDesc desc = {};
@@ -264,14 +276,22 @@ struct StateCase {
     }
 
     void Draw(float depth, float opacity, uint32_t flags, uint8_t stencil) {
-        DrawParameters parameters = {depth, opacity, flags, premultiplied ? -1 : 1};
+        DrawParameters parameters = {depth, opacity, flags | ((drawParameters && indirect) ? 4u : 0u), premultiplied ? -1 : 1};
         nri::SetRootConstantsDesc constants = {};
         constants.data = &parameters;
         constants.size = sizeof(parameters);
         constants.bindPoint = nri::BindPoint::GRAPHICS;
         core.CmdSetRootConstants(*command, constants);
         core.CmdSetStencilReference(*command, stencil, stencil);
-        core.CmdDrawIndexed(*command, {6, 2, 2, premultiplied ? -1 : 1, 1});
+
+        if (!indirect)
+            core.CmdDrawIndexed(*command, {6, 2, 2, premultiplied ? -1 : 1, 1});
+        else if (multiDraw)
+            core.CmdDrawIndexedIndirect(*command, *buffers[5], 0, 2, sizeof(nri::DrawIndexedDesc), nullptr, 0);
+        else {
+            core.CmdDrawIndexedIndirect(*command, *buffers[5], 0, 1, sizeof(nri::DrawIndexedDesc), nullptr, 0);
+            core.CmdDrawIndexedIndirect(*command, *buffers[5], sizeof(nri::DrawIndexedDesc), 1, sizeof(nri::DrawIndexedDesc), nullptr, 0);
+        }
     }
 
     bool Execute(uint32_t& maxChannelError) {
@@ -280,7 +300,7 @@ struct StateCase {
 
         nri::GlobalBarrierDesc host = {};
         host.before = {nri::AccessBits::HOST_WRITE, nri::StageBits::HOST};
-        host.after = {nri::AccessBits::VERTEX_BUFFER | nri::AccessBits::INDEX_BUFFER | nri::AccessBits::COPY_SOURCE, nri::StageBits::ALL};
+        host.after = {nri::AccessBits::VERTEX_BUFFER | nri::AccessBits::INDEX_BUFFER | nri::AccessBits::COPY_SOURCE | nri::AccessBits::ARGUMENT_BUFFER, nri::StageBits::ALL};
         nri::TextureBarrierDesc transitions[4] = {};
 
         for (uint32_t i = 0; i < 4; i++) {
@@ -471,21 +491,37 @@ struct StateCase {
 
 } // namespace
 
-bool RunGraphicsStates(nri::Device& device, const nri::CoreInterface& core, nri::Queue& queue, const std::atomic<uint32_t>& errors, PipelineCacheRun& cache, uint32_t& completedCases, uint32_t& maxChannelError, uint32_t& parameterCases) {
-    uint32_t caseNum = core.GetDeviceDesc(device).shaderFeatures.drawParameters ? 16 : 8;
+bool RunGraphicsStates(nri::Device& device, const nri::CoreInterface& core, nri::Queue& queue, const std::atomic<uint32_t>& errors, PipelineCacheRun& cache, uint32_t& completedCases, uint32_t& maxChannelError, uint32_t& parameterCases, uint32_t& indirectCases, uint32_t& multiParameterCases) {
+    nri::DrawCapabilitiesVKInterface query = {};
 
-    for (uint32_t i = 0; i < caseNum; i++) {
-        StateCase state{device, core, queue, cache, uint8_t((i & 4) ? 4 : 1), (i & 2) != 0, (i & 1) != 0, i >= 8};
-        bool passed = state.Initialize() && state.Execute(maxChannelError);
-        passed = state.Cleanup() && passed && errors.load() == 0;
+    if (nri::nriGetInterface(device, NRI_INTERFACE(nri::DrawCapabilitiesVKInterface), &query) != nri::Result::SUCCESS)
+        return false;
 
-        if (!passed)
-            return false;
+    const auto& features = query.GetDrawCapabilitiesVK(device);
 
-        if (i >= 8)
-            parameterCases++;
-        else
-            completedCases++;
+    for (uint32_t mode = 0; mode < 4; mode++) {
+        if ((mode == 1 && !features.shaderDrawParameters) ||
+            (mode == 2 && !features.drawIndirectFirstInstance) ||
+            (mode == 3 && !(features.shaderDrawParameters && features.drawIndirectFirstInstance && features.multiDrawIndirect)))
+            continue;
+
+        for (uint32_t i = 0; i < 8; i++) {
+            StateCase state{device, core, queue, cache, uint8_t((i & 4) ? 4 : 1), (i & 2) != 0, (i & 1) != 0, (mode & 1) != 0, mode >= 2, features.multiDrawIndirect};
+            bool passed = state.Initialize() && state.Execute(maxChannelError);
+            passed = state.Cleanup() && passed && errors.load() == 0;
+
+            if (!passed)
+                return false;
+
+            if (mode == 0)
+                completedCases++;
+            else if (mode == 1)
+                parameterCases++;
+            else if (mode == 2)
+                indirectCases++;
+            else
+                multiParameterCases++;
+        }
     }
 
     return true;

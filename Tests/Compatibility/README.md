@@ -453,7 +453,7 @@ alpha blending, stencil/depth and MSAA together. Raw IDs are verified in the bas
 builtins are qualified in a separately admitted variant as described below. Native and
 extension-free Vulkan1.1 runs are required; masked hardware remains distinct
 from genuine older-device acceptance. The shared pipeline cache now contains
-19 baseline pipelines plus16optional draw-parameter pipelines when supported;
+19 baseline pipelines plus16per admitted optional graphics mode (up to67 total);
 the API text/memory/module and persistent cache tests derive their
 entry counts from the current corpus.
 
@@ -485,10 +485,9 @@ validation-enabled profile, two deliberate oversized requests produce exactly
 two expected NRI diagnostics and no native Vulkan error. Unexpected errors still
 fail the fixture. Signed indexed offsets and other graphics-state checks remain.
 
-Nonzero indirect firstInstance is not yet qualified by this baseline. NRI v191 has no separate public indirect-firstInstance
-capability field; consumers must not infer it from shaderFeatures.drawParameters
-or drawIndirectMaxNum. A portable admission contract remains required before the
-production renderer's ordered particle batching can be ported.
+Nonzero indirect firstInstance uses the fork's additive enabled-feature query
+described below. Do not infer it from shaderFeatures.drawParameters or
+drawIndirectMaxNum. Other backend admission remains separately qualified.
 
 The modern masked profile keeps drawIndirectCount enabled while disabling
 multiDrawIndirect. Count-buffer calls with maximum3 remain supported even though
@@ -511,7 +510,7 @@ requires actual VertexIndex/InstanceIndex builtins in this shader's binary.
 DrawParameters capability and all five input builtins must appear in the binary.
 Only this named entry admits that optional capability. CPU push data supplies
 the expected signed base vertex; coordinate/instance data independently checks
-local IDs. The tested draw index is0 for individual indexed commands. NRI's
+local IDs. Direct commands test draw index0; the admitted multi-draw mode tests indices0/1. NRI's
 `shaderFeatures.drawParameters` selects whether8additional graphics cases run;
 unsupported devices create none of those pipelines. The runner verifies this
 against actual enabled feature provenance. No global capability relaxation or
@@ -531,3 +530,29 @@ https://docs.shader-slang.org/en/stable/external/slang/docs/user-guide/a2-01-spi
 Raw IDs include base offsets. Slang's ordinary HLSL-style IDs subtract them.
 Do not blindly exchange these semantics in an existing shader. This qualification
 covers Vulkan SPIR-V,not DXIL/Metal shader-ID behavior or production shader ports.
+
+### Enabled Vulkan draw capabilities and indirect instances
+
+`Extensions/NRIDrawCapabilitiesVK.h` adds `DrawCapabilitiesVKInterface` without
+changing existing public tables or DeviceDesc. It reports the actual enabled
+multiDrawIndirect, drawIndirectFirstInstance, shaderDrawParameters and
+drawIndirectCount bits for NRI-created Vulkan devices. The immutable reference
+remains valid until device destruction. Other backends and wrapped Vulkan
+devices return UNSUPPORTED: wrappers provide no enabled-feature chain to NRI.
+Consumers must obtain explicit capability information for wrapped devices from
+their creator; physical-device support is not proof a feature was enabled.
+
+The GPU fixture queries through both C++ and a compiled C translation unit and
+compares results with the device-creation manifest. An additional raw-ID mode
+draws two indirect indexed commands with firstInstance1/2 and signed base vertex.
+It requires only drawIndirectFirstInstance; a further mode also requires
+shaderDrawParameters and multiDrawIndirect and independently checks local IDs,
+base offsets and DrawIndex0/1. Each admitted mode runs the existing eight
+texture/alpha/depth/stencil/MSAA pixel cases. Unsupported modes create no pipelines.
+
+`NRI_COMPATIBILITY_NO_INDIRECT_FIRST_INSTANCE` and
+`NRI_COMPATIBILITY_NO_SHADER_DRAW_PARAMETERS` disable those device-creation bits
+independently; the matching runner flags are `--require-no-indirect-first-instance`
+and `--require-no-shader-draw-parameters`. The all-optionals-disabled legacy
+profile remains supported. Modern and extension-free1.1 runs are differential
+coverage on the available modern GPU, not genuine older-device acceptance.
