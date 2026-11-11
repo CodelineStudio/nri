@@ -33,11 +33,17 @@ repeated waits for older values must succeed without consuming completion state.
 A later partial host reset updates query0 while query1 retains its exact result.
 
 Run both legacy synchronization and native modern profiles with native validation.
-These tests currently use native timeline semaphores and host query reset. They
-establish the behavior the pending emulation must preserve, not emulation support.
+These tests run on native timeline semaphores or the no-timeline scheduler;
+host query reset remains native. They establish behavior for the remaining query
+reset implementation as well as regression coverage for fence emulation.
 In particular, an implementation of host reset that submits to queue0 and waits
 would depend on the future producer the caller cannot submit until reset returns.
 The fixture's timeout still applies to submission, reset, all waits and cleanup.
+The fixture additionally alternates a logical fence between its two physical
+queues for128 signals, including repeated old-value waits. Every16 cycles it
+samples idle retirement. Diagnostic `NRI_LEGACY_SCHEDULER` lines report retained
+packets, native completions, signal points and binary semaphores; these counts
+cover scheduler-owned synchronization objects, not total CPU/GPU memory.
 
 ## Build and run
 
@@ -86,7 +92,8 @@ synchronization2 feature before device creation. This control exists only in the
 standalone fixture build. The three synchronization2 dispatch pointers remain
 null; buffer/image barriers, timestamps and queue submission must use the legacy
 commands. Use `--require-legacy-sync` to reject a wrongly configured run. Timeline
-semaphores remain native. Configure OFF and rerun for the modern comparison.
+semaphores remain native unless NO_TIMELINE is enabled. Configure OFF and rerun
+for the modern comparison.
 Build `NRILegacySynchronizationTests` and run CTest for Release-safe scope
 conversion checks, including split stage/access bits and unknown upper bits.
 
@@ -129,8 +136,20 @@ enables create_renderpass2 and depth_stencil_resolve. The two options are mutual
 exclusive. Both require an NRI-owned API1.1 device. Combine with legacy sync, and
 turn both options off with API_MINOR=0 for the native dynamic-rendering comparison.
 
-Temporary required capabilities are native timeline semaphores and host query
-reset. Missing capabilities return UNSUPPORTED
+`-DNRI_COMPATIBILITY_NO_TIMELINE=ON` removes the timeline extension and disables
+both aggregate and individual native timeline features. `--require-no-timeline`
+checks their absence. Test API1.1 with legacy synchronization and renderpass1,
+then native API with sync2 and no timeline, then all controls OFF. Emulated fence
+dependencies retain binary signal anchors; modern timeline entry points stay null
+when that feature is disabled. Host query reset is still native in these tests.
+
+`-DNRI_COMPATIBILITY_FAIL_SUBMIT=N` injects a device-memory failure before the Nth
+scheduler native submission (0 disables it). For the two-queue sequence N=3 fails
+the first consumer after producer and payload-split submissions. The runner must
+report failure, with the injected diagnostic and no native lifetime errors. Save
+this expected-failure receipt; it must not be relabeled as a normal passing run.
+
+The temporary required capability is host query reset. Missing support returns UNSUPPORTED
 with a diagnostic identifying the unimplemented fallback. Full Vulkan1.1
 support requires these remaining implementations and actual legacy hardware.
 
@@ -141,7 +160,8 @@ submission scope. It does not add queue-idle waits.
 
 This is transfer/synchronization and offscreen attachment qualification, not
 Vulkan 1.1 acceptance.
-It does not exercise WSI, execute shaders, or prove future waits, fan-out, cross-queue ordering,
-device loss or memory pressure. The manifest records actual NRI-created device
+The baseline does not exercise WSI, execute shaders, or prove future waits and
+fan-out by itself; the separate fence-sequence fixture covers the cases described
+above. Real device loss and broader memory pressure remain pending. The manifest records actual NRI-created device
 configuration; it is never inferred from NRI's version or adapter name. Later fixtures must
 cover those cases and real older drivers before claiming compatibility support.

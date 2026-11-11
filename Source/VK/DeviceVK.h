@@ -227,6 +227,10 @@ struct DeviceVK final : public DeviceBase {
     ~DeviceVK();
 
     Result Create(const DeviceCreationDesc& desc, const DeviceCreationVKDesc& descVK);
+    inline LegacyQueueSchedulerVK* GetLegacyScheduler() const {
+        return m_LegacyScheduler;
+    }
+
     VkRenderPass GetOrCreateRenderPass(const RenderPassDesc& desc);
     VkFramebuffer GetOrCreateFramebuffer(const FramebufferDesc& desc);
     void FillCreateInfo(const BufferDesc& bufferDesc, VkBufferCreateInfo& info) const;
@@ -334,6 +338,7 @@ private:
     Vector<RenderPassCacheEntry> m_RenderPasses;
     Vector<FramebufferCacheEntry> m_Framebuffers;
     Vector<TransferContextVK*> m_TransferContexts;
+    LegacyQueueSchedulerVK* m_LegacyScheduler = nullptr;
     DispatchTable m_VK = {};
     VkPhysicalDeviceMemoryProperties m_MemoryProps = {};
     VkPhysicalDeviceDescriptorHeapPropertiesEXT m_DescriptorHeapProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT};

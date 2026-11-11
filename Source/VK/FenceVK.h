@@ -17,6 +17,10 @@ struct FenceVK final : public DebugNameBase {
         return m_Device;
     }
 
+    inline const std::shared_ptr<LegacyFenceStateVK>& GetLegacyState() const {
+        return m_LegacyState;
+    }
+
     ~FenceVK();
 
     Result Create(const FenceDesc& fenceDesc);
@@ -39,6 +43,7 @@ struct FenceVK final : public DebugNameBase {
 private:
     DeviceVK& m_Device;
     VkSemaphore m_Handle = VK_NULL_HANDLE;
+    std::shared_ptr<LegacyFenceStateVK> m_LegacyState;
     mutable void* m_SharedHandle = nullptr; // Win32: the one export of "m_Handle", duplicated for each "GetSharedHandle"
     bool m_OwnsNativeObjects = true;
 };

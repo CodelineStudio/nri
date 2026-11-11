@@ -780,6 +780,7 @@ endif()
 
 # VK
 if(NRI_ENABLE_VK_SUPPORT)
+    find_package(Threads REQUIRED)
     if(APPLE)
         find_package(Vulkan REQUIRED)
     endif()
@@ -833,6 +834,8 @@ if(NRI_ENABLE_VK_SUPPORT)
         "Source/VK/SharedVK.h"
         "Source/VK/LegacySynchronizationVK.h"
         "Source/VK/LegacyFormatVK.h"
+        "Source/VK/LegacyQueueSchedulerVK.h"
+        "Source/VK/LegacyQueueSchedulerVK.hpp"
         "Source/VK/SwapChainVK.h"
         "Source/VK/SwapChainVK.hpp"
         "Source/VK/TextureVK.h"
@@ -880,6 +883,7 @@ if(NRI_ENABLE_VK_SUPPORT)
     target_link_libraries(NRI_VK
         PRIVATE
             NRI_Shared
+            Threads::Threads
             $<$<BOOL:${APPLE}>:
                 ${Vulkan_LIBRARIES}
             >

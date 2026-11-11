@@ -12,6 +12,7 @@
 #include "LegacySynchronizationVK.h"
 #include "LegacyFormatVK.h"
 #include "SharedExternal.h"
+#include <memory>
 #include "VideoHelpersVK.h"
 
 typedef uint16_t MemoryTypeIndex;
@@ -53,6 +54,8 @@ struct DescriptorSetVK;
 struct DescriptorVK;
 struct DeviceVK;
 struct FenceVK;
+struct LegacyFenceStateVK;
+struct LegacyQueueSchedulerVK;
 struct MemoryAllocatorVK;
 struct MemoryVK;
 struct MicromapVK;

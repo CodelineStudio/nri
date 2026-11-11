@@ -80,6 +80,9 @@ NRI_INLINE void QueueVK::GetCalibratedTimestamps(uint64_t& timestampGPU, uint64_
 }
 
 NRI_INLINE Result QueueVK::Submit(const QueueSubmitDesc& queueSubmitDesc) {
+    if (m_Device.GetLegacyScheduler())
+        return m_Device.GetLegacyScheduler()->Submit(*this, queueSubmitDesc);
+
     ExclusiveScope lock(*m_Lock);
     const VkPipelineStageFlags2 unsupportedStages = m_Device.GetUnsupportedPipelineStages();
 
@@ -174,6 +177,13 @@ NRI_INLINE Result QueueVK::Submit(const QueueSubmitDesc& queueSubmitDesc) {
 }
 
 NRI_INLINE Result QueueVK::WaitIdle() {
+    if (m_Device.GetLegacyScheduler()) {
+        Result result = m_Device.GetLegacyScheduler()->Drain(this, false);
+
+        if (result != Result::SUCCESS)
+            return result;
+    }
+
     ExclusiveScope lock(*m_Lock);
 
     const auto& vk = m_Device.GetDispatchTable();

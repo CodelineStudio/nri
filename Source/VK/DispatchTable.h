@@ -74,6 +74,9 @@ struct DispatchTable {
     VK_FUNC(CreateSampler);                               // + | +
     VK_FUNC(CreateQueryPool);                             // + | +
     VK_FUNC(CreateCommandPool);                           // + | +
+    VK_FUNC(CreateFence);
+    VK_FUNC(DestroyFence);
+    VK_FUNC(GetFenceStatus);
     VK_FUNC(CreateSemaphore);                             // + | +
     VK_FUNC(CreateDescriptorPool);                        // + | +
     VK_FUNC(CreatePipelineLayout);                        // + | +

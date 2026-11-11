@@ -2,7 +2,7 @@
 
 Status: partial implementation; full Vulkan 1.1 compatibility is not implemented
 or qualified yet. Legacy barrier, timestamp and queue-submission paths are
-implemented with native timeline semaphores; see `Tests/Compatibility` for the
+implemented with native or emulated timeline fences; see `Tests/Compatibility` for the
 feature-disabled fixture. Discovery and owned-device initialization now negotiate
 Vulkan1.1+, with individual feature/property structures and version/extension
 selected dispatch. Fixed descriptors, legacy format queries and subgroup/buffer
@@ -16,10 +16,28 @@ The fixture verifies clear/load/store and rectangular clears, input-attachment
 layouts, and two-view 4x MSAA color resolve with a depth attachment on renderpass1,
 renderpass2 and native dynamic rendering. Shader execution is still pending.
 
-**Temporary implementation prerequisites remain:** native timeline semaphores
-and host query reset. Device creation
-reports these missing implementations explicitly. They must be removed through
-real fallbacks before the required no-timeline Vulkan1.1 baseline is complete.
+Owned devices without timeline semaphores now use `LegacyQueueSchedulerVK`.
+It retains FIFO order per physical queue, copies accepted submission arrays,
+defers unresolved future waits, and uses VkFence completion plus binary semaphore
+dependencies. Binary payload splitting preserves fanout and repeated waits;
+cross-queue signals retain transitive memory dependencies. Completed old points
+are retired while the newest completed anchor remains reusable. No ordinary
+submission uses a queue-idle substitute. Host waits release the scheduler mutex.
+Native timeline paths remain selected when that feature is enabled.
+
+Tests cover transfer/render readback, future waits, two consumers, concurrent host
+waits, partial host query resets, 128 alternating-queue retirement cycles and an
+injected submit failure after partial native submission. Masked API1.1 runs remove
+the timeline extension entirely; a modern sync2/no-timeline combination is also
+covered. Shared timeline handles, wrapped no-timeline devices and low-latency
+timeline interop are unsupported on the emulated path. WSI integration has source
+changes for deferred work and acquisition locking, but runtime WSI acceptance,
+real device-loss handling, native interop and broader stress remain pending.
+
+**Temporary implementation prerequisite remaining:** host query reset. Device
+creation reports its missing fallback explicitly. A synchronous reset on an
+ordinary graphics queue is insufficient: the two-queue fixture demonstrates a
+legal host-reset call while that queue awaits a future producer.
 The modern GPU requesting API1.1 is not a real older-driver acceptance result.
 Baseline upstream: `a20efc8f7c6e4e6045acd6f29bf90b0d26ac3df5`.
 Fork branch: `codeline/vulkan-1.1`. Vulkan 1.0 and GLES are outside this work.

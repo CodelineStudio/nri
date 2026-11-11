@@ -476,7 +476,8 @@ NRI_INLINE Texture* const* SwapChainVK::GetTextures(uint32_t& textureNum) const 
 }
 
 NRI_INLINE Result SwapChainVK::AcquireNextTexture(FenceVK& acquireSemaphore, uint32_t& textureIndex) {
-    ExclusiveScope lock(m_Queue->GetLock());
+    // Acquisition synchronizes the swap chain, not the queue. Holding its queue
+    // lock during acquisition can prevent the work needed to release an image.
 
     // Acquire next image (signal)
     VkAcquireNextImageInfoKHR acquireInfo = {VK_STRUCTURE_TYPE_ACQUIRE_NEXT_IMAGE_INFO_KHR};
@@ -512,6 +513,13 @@ NRI_INLINE Result SwapChainVK::WaitForPresent(uint64_t presentId) {
 }
 
 NRI_INLINE Result SwapChainVK::Present(FenceVK& releaseSemaphore, uint64_t presentIdValue) {
+    if (m_Device.GetLegacyScheduler()) {
+        Result result = m_Device.GetLegacyScheduler()->Drain(m_Queue, false);
+
+        if (result != Result::SUCCESS)
+            return result;
+    }
+
     ExclusiveScope lock(m_Queue->GetLock());
 
     // Present (wait)

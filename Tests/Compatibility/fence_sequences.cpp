@@ -80,6 +80,7 @@ struct Fixture {
     bool exactBytes = false;
     bool queriesExact = false;
     bool partialResetExact = false;
+    uint32_t retirementCycles = 0;
     bool repeatedWaits = false;
     double hostResetSeconds = 0.0;
     std::string failure;
@@ -351,6 +352,37 @@ struct Fixture {
         core.UnmapBuffer(*timestamps);
         partialResetExact = afterReset[0] >= values[1] && afterReset[1] == values[1];
 
+        // Move one logical fence between physical queues repeatedly. Each wait
+        // for an older value must remain a reusable dependency after compaction.
+        submit.commandBuffers = nullptr;
+        submit.commandBufferNum = 0;
+        wait.fence = done[1];
+        signal.fence = done[1];
+        submit.waitFences = &wait;
+        submit.waitFenceNum = 1;
+
+        for (uint32_t cycle = 0; cycle < 128; cycle++) {
+            wait.value = 2 + cycle;
+            signal.value = 3 + cycle;
+
+            if (!Check(core.QueueSubmit(*queues[cycle % 2], submit), "SubmitRetirementCycle"))
+                return false;
+
+            core.Wait(*done[1], signal.value);
+            core.Wait(*done[1], 1);
+
+            if (core.GetFenceValue(*done[1]) != signal.value) {
+                failure = "Retirement cycle did not complete its signal";
+
+                return false;
+            }
+
+            retirementCycles++;
+
+            if ((retirementCycles % 16) == 0 && !Check(core.DeviceWaitIdle(device), "IdleRetirementSample"))
+                return false;
+        }
+
         if (!exactBytes || !queriesExact || !repeatedWaits || !partialResetExact)
             failure = "Future wait, fanout, query reset or repeated completion mismatch";
 
@@ -442,9 +474,9 @@ int main(int argc, char** argv) {
     bool passed = fixture.Run(validation, adapterIndex);
     passed = fixture.Cleanup() && passed;
     passed = passed && fixture.diagnostics.errors.load() == 0;
-    const int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_fence_sequences\",\"status\":\"%s\",\"source_commit\":%s,\"compiler\":%s,\"adapter_name\":%s,\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"future_wait_accepted\":%s,\"fanout_exact_bytes\":%s,\"host_reset_queries_exact\":%s,\"repeated_concurrent_waits\":%s,\"partial_reset_exact\":%s,\"host_reset_seconds\":%.6f,\"legacy_sync_forced\":%s,\"failure\":%s}\n",
+    const int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_fence_sequences\",\"status\":\"%s\",\"source_commit\":%s,\"compiler\":%s,\"adapter_name\":%s,\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"future_wait_accepted\":%s,\"fanout_exact_bytes\":%s,\"host_reset_queries_exact\":%s,\"repeated_concurrent_waits\":%s,\"partial_reset_exact\":%s,\"retirement_cycles\":%u,\"host_reset_seconds\":%.6f,\"legacy_sync_forced\":%s,\"failure\":%s}\n",
         passed ? "passed" : "failed", JsonString(NRI_COMPATIBILITY_SOURCE_COMMIT).c_str(), JsonString(NRI_COMPATIBILITY_COMPILER).c_str(), JsonString(fixture.adapter.name).c_str(), fixture.adapter.deviceId, fixture.adapter.driverVersion,
-        fixture.diagnostics.errors.load(), fixture.diagnostics.warnings.load(), fixture.futureAccepted ? "true" : "false", fixture.exactBytes ? "true" : "false", fixture.queriesExact ? "true" : "false", fixture.repeatedWaits ? "true" : "false", fixture.partialResetExact ? "true" : "false", fixture.hostResetSeconds,
+        fixture.diagnostics.errors.load(), fixture.diagnostics.warnings.load(), fixture.futureAccepted ? "true" : "false", fixture.exactBytes ? "true" : "false", fixture.queriesExact ? "true" : "false", fixture.repeatedWaits ? "true" : "false", fixture.partialResetExact ? "true" : "false", fixture.retirementCycles, fixture.hostResetSeconds,
         NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", JsonString(fixture.failure.c_str()).c_str());
 
     if (written < 0 || std::fflush(stdout) != 0)

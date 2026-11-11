@@ -22,6 +22,7 @@ def main():
     parser.add_argument("--validation", action="store_true")
     parser.add_argument("--require-native-validation", action="store_true")
     parser.add_argument("--require-legacy-sync", action="store_true")
+    parser.add_argument("--require-no-timeline", action="store_true")
     parser.add_argument("--require-individual-features", action="store_true")
     parser.add_argument("--require-basic-optionals", action="store_true")
     parser.add_argument("--require-renderpass1", action="store_true")
@@ -73,10 +74,16 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.require_no_timeline and manifest['device']['timeline'] != 0:
+                    raise ValueError("Required no-timeline profile is not active")
+                if args.require_no_timeline and 'VK_KHR_timeline_semaphore' in manifest['device']['extensions']:
+                    raise ValueError("Timeline semaphore extension is still enabled")
                 if args.require_individual_features:
                     require_individual_features(manifest)
                 if args.require_renderpass1 or args.require_renderpass2:
                     required = {'VK_KHR_timeline_semaphore', 'VK_EXT_host_query_reset'}
+                    if args.require_no_timeline:
+                        required.remove('VK_KHR_timeline_semaphore')
                     if args.require_renderpass2:
                         required |= {'VK_KHR_create_renderpass2', 'VK_KHR_depth_stencil_resolve'}
                     if set(manifest['device']['extensions']) != required or manifest['device']['effective_minor'] != 1 or manifest['device']['dynamic_rendering'] != 0:

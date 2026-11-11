@@ -14,6 +14,7 @@
 #include "DescriptorSetVK.h"
 #include "DescriptorVK.h"
 #include "FenceVK.h"
+#include "LegacyQueueSchedulerVK.h"
 #include "MemoryVK.h"
 #include "MicromapVK.h"
 #include "PipelineCacheVK.h"
@@ -46,6 +47,7 @@ using namespace nri;
 #include "DescriptorVK.hpp"
 #include "DeviceVK.hpp"
 #include "FenceVK.hpp"
+#include "LegacyQueueSchedulerVK.hpp"
 #include "MemoryVK.hpp"
 #include "MicromapVK.hpp"
 #include "PipelineCacheVK.hpp"
@@ -559,7 +561,13 @@ static void* NRI_CALL GetQueueNativeObject(const Queue* queue) {
     if (!queue)
         return nullptr;
 
-    return (VkQueue)(*(QueueVK*)queue);
+    QueueVK& queueVK = *(QueueVK*)queue;
+    LegacyQueueSchedulerVK* scheduler = queueVK.GetDevice().GetLegacyScheduler();
+
+    if (scheduler && scheduler->Drain(&queueVK, false) != Result::SUCCESS)
+        return nullptr;
+
+    return (VkQueue)queueVK;
 }
 
 static void* NRI_CALL GetCommandBufferNativeObject(const CommandBuffer* commandBuffer) {

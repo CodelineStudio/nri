@@ -731,6 +731,8 @@ DeviceVK::~DeviceVK() {
     for (TransferContextVK* context : m_TransferContexts)
         Destroy(context);
 
+    Destroy(m_LegacyScheduler);
+
     for (FramebufferCacheEntry& framebuffer : m_Framebuffers) {
         if (framebuffer.handle)
             m_VK.DestroyFramebuffer(m_Device, framebuffer.handle, m_AllocationCallbackPtr);
@@ -963,6 +965,12 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 #endif
 
         return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) != 0 && strcmp(extension, VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME) != 0;
+    }), desiredDeviceExts.end());
+#endif
+
+#if NRI_COMPATIBILITY_NO_TIMELINE
+    desiredDeviceExts.erase(std::remove_if(desiredDeviceExts.begin(), desiredDeviceExts.end(), [](const char* extension) {
+        return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0;
     }), desiredDeviceExts.end());
 #endif
 
@@ -1231,6 +1239,12 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     Synchronization2Features.synchronization2 = VK_FALSE;
 #endif
 
+#if NRI_COMPATIBILITY_NO_TIMELINE
+    NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "No-timeline fixture requires an NRI-owned device");
+    features12.timelineSemaphore = VK_FALSE;
+    TimelineSemaphoreFeatures.timelineSemaphore = VK_FALSE;
+#endif
+
     m_IsSupported.timelineSemaphore = features12.timelineSemaphore;
     m_IsSupported.hostQueryReset = features12.hostQueryReset;
     m_IsSupported.formatFeatureFlags2 = m_MinorVersion >= 3 || IsExtensionSupported(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME, desiredDeviceExts);
@@ -1283,7 +1297,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 
     m_IsMemoryZeroInitializationEnabled = desc.enableMemoryZeroInitialization && ZeroInitializeDeviceMemoryFeatures.zeroInitializeDeviceMemory;
 
-    NRI_RETURN_ON_FAILURE(this, m_IsSupported.timelineSemaphore, Result::UNSUPPORTED, "Native timeline semaphore support is currently required; legacy value-fence emulation is not implemented yet");
+    NRI_RETURN_ON_FAILURE(this, !isWrapper || m_IsSupported.timelineSemaphore, Result::UNSUPPORTED, "Wrapped devices without native timeline semaphores are not supported");
     NRI_RETURN_ON_FAILURE(this, m_IsSupported.hostQueryReset, Result::UNSUPPORTED, "Host query reset fallback is not implemented yet; hostQueryReset is currently required");
 
     if (!m_IsSupported.synchronization2)
@@ -1377,6 +1391,9 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             }
         }
     }
+
+    if (!m_IsSupported.timelineSemaphore)
+        m_LegacyScheduler = Allocate<LegacyQueueSchedulerVK>(GetAllocationCallbacks(), *this);
 
     // Create queues
     memset(m_Desc.adapterDesc.queueNum, 0, sizeof(m_Desc.adapterDesc.queueNum)); // patch to reflect available queues
@@ -2053,7 +2070,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             m_UnsupportedPipelineStages |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
         }
 
-        m_Desc.features.lowLatency = m_IsSupported.presentId != 0 && IsExtensionSupported(VK_NV_LOW_LATENCY_2_EXTENSION_NAME, desiredDeviceExts);
+        m_Desc.features.lowLatency = m_IsSupported.timelineSemaphore && m_IsSupported.presentId != 0 && IsExtensionSupported(VK_NV_LOW_LATENCY_2_EXTENSION_NAME, desiredDeviceExts);
         m_Desc.features.componentSwizzle = true;
         m_Desc.features.independentFrontAndBackStencilReferenceAndMasks = true;
         m_Desc.features.filterOpMinMax = features12.samplerFilterMinmax;
@@ -2752,6 +2769,9 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
     GET_DEVICE_CORE_FUNC(CreateQueryPool);
     GET_DEVICE_CORE_FUNC(CreateCommandPool);
     GET_DEVICE_CORE_FUNC(CreateSemaphore);
+    GET_DEVICE_CORE_FUNC(CreateFence);
+    GET_DEVICE_CORE_FUNC(DestroyFence);
+    GET_DEVICE_CORE_FUNC(GetFenceStatus);
     GET_DEVICE_CORE_FUNC(CreateDescriptorPool);
     GET_DEVICE_CORE_FUNC(CreatePipelineLayout);
     GET_DEVICE_CORE_FUNC(CreateDescriptorSetLayout);
@@ -3476,11 +3496,14 @@ NRI_INLINE void DeviceVK::DestroyFramebuffers(VkImageView imageView) {
 }
 
 bool DeviceVK::IsSharedFenceSupported(VkSemaphoreType type) const {
+    if (!m_IsSupported.timelineSemaphore && type == VK_SEMAPHORE_TYPE_TIMELINE)
+        return false;
+
     VkSemaphoreTypeCreateInfo semaphoreType = {VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
     semaphoreType.semaphoreType = type;
 
     VkPhysicalDeviceExternalSemaphoreInfo info = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO};
-    info.pNext = &semaphoreType;
+    info.pNext = m_IsSupported.timelineSemaphore ? &semaphoreType : nullptr;
     info.handleType = SHARED_SEMAPHORE_HANDLE_TYPE;
 
     VkExternalSemaphoreProperties props = {VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES};
@@ -3766,6 +3789,13 @@ NRI_INLINE VkVideoCodecOperationFlagsKHR DeviceVK::GetVideoCodecOperations(bool 
 }
 
 NRI_INLINE Result DeviceVK::WaitIdle() {
+    if (m_LegacyScheduler) {
+        Result result = m_LegacyScheduler->Drain(nullptr, false);
+
+        if (result != Result::SUCCESS)
+            return result;
+    }
+
     // Don't use "vkDeviceWaitIdle" because it requires host access synchronization to all queues, better do it one by one instead
     for (auto& queueFamily : m_QueueFamilies) {
         for (auto queue : queueFamily) {
@@ -3774,6 +3804,9 @@ NRI_INLINE Result DeviceVK::WaitIdle() {
                 return result;
         }
     }
+
+    if (m_LegacyScheduler)
+        m_LegacyScheduler->ReportStats();
 
     return Result::SUCCESS;
 }
