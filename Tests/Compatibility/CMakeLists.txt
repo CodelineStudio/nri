@@ -57,6 +57,11 @@ if(NRI_COMPATIBILITY_NO_HOST_RESET)
     target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_NO_HOST_RESET=1)
 endif()
 set(NRI_COMPATIBILITY_FAIL_SUBMIT 0 CACHE STRING "Test-only scheduler native-submit ordinal to fail with device-memory exhaustion (0=off)")
+option(NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST "Use synthetic device loss instead of OOM at FAIL_SUBMIT" OFF)
+if(NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST AND (NRI_COMPATIBILITY_FAIL_SUBMIT STREQUAL "0" OR NOT NRI_COMPATIBILITY_NO_TIMELINE))
+    message(FATAL_ERROR "Synthetic scheduler device loss requires FAIL_SUBMIT and NO_TIMELINE")
+endif()
+target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST=$<BOOL:${NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST}>)
 if(NOT NRI_COMPATIBILITY_FAIL_SUBMIT MATCHES "^[0-9]+$")
     message(FATAL_ERROR "FAIL_SUBMIT must be a nonnegative integer")
 endif()
@@ -162,6 +167,23 @@ target_compile_definitions(NRICompatibilityFenceSequences PRIVATE
 target_compile_definitions(NRICompatibilityQueryReset PRIVATE
     NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
     NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
+
+add_executable(NRICompatibilitySchedulerLoss scheduler_loss.cpp)
+target_compile_features(NRICompatibilitySchedulerLoss PRIVATE cxx_std_17)
+set_target_properties(NRICompatibilitySchedulerLoss PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(NRICompatibilitySchedulerLoss PRIVATE NRI Threads::Threads)
+target_include_directories(NRICompatibilitySchedulerLoss PRIVATE "${vulkan_headers_SOURCE_DIR}/include")
+target_compile_definitions(NRICompatibilitySchedulerLoss PRIVATE
+    NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+    NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+    NRI_COMPATIBILITY_FAIL_SUBMIT=${NRI_COMPATIBILITY_FAIL_SUBMIT}
+    NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST=$<BOOL:${NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST}>
+    NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
+if(NOT NRI_STATIC_LIBRARY)
+    add_custom_command(TARGET NRICompatibilitySchedulerLoss POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilitySchedulerLoss>"
+        VERBATIM)
+endif()
 
 add_executable(NRICompatibilityAllocationLoad allocation_load.cpp)
 target_compile_features(NRICompatibilityAllocationLoad PRIVATE cxx_std_17)

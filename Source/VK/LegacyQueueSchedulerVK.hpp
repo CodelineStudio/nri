@@ -84,8 +84,13 @@ Result LegacyQueueSchedulerVK::CreateCompletion(std::shared_ptr<LegacyCompletion
 
 Result LegacyQueueSchedulerVK::NativeSubmit(QueueVK& queue, const VkSubmitInfo& info, const std::shared_ptr<LegacyCompletionVK>& completion) {
 #if NRI_COMPATIBILITY_FAIL_SUBMIT
-    if (++m_SubmitCount == NRI_COMPATIBILITY_FAIL_SUBMIT)
+    if (++m_SubmitCount == NRI_COMPATIBILITY_FAIL_SUBMIT) {
+#if NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST
+        return Fail(VK_ERROR_DEVICE_LOST, "injected QueueSubmit");
+#else
         return Fail(VK_ERROR_OUT_OF_DEVICE_MEMORY, "injected QueueSubmit");
+#endif
+    }
 #endif
 
     ExclusiveScope lock(queue.GetLock());
@@ -513,8 +518,13 @@ Result LegacyQueueSchedulerVK::Drain(QueueVK* queue, bool completion) {
             if (pollResult != Result::SUCCESS)
                 return pollResult;
 
-            if (m_InFlight.empty())
+            if (m_InFlight.empty()) {
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+                NRI_REPORT_INFO(&m_Device, "NRI_LEGACY_FAILURE_DRAIN {\"pending_packets\":%u,\"in_flight\":%u}", (uint32_t)m_Pending.size(), (uint32_t)m_InFlight.size());
+#endif
+
                 return result;
+            }
         }
 
         if (result == Result::SUCCESS && !HasPending(queue) && (!completion || m_InFlight.empty()))

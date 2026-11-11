@@ -16,7 +16,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
-    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory", "nri_vulkan_inflight_resources", "nri_vulkan_multi_presentation", "nri_vulkan_allocation_load"), default="nri_vulkan_buffer_baseline")
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory", "nri_vulkan_inflight_resources", "nri_vulkan_multi_presentation", "nri_vulkan_allocation_load", "nri_vulkan_scheduler_loss"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -121,6 +121,14 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.fixture == 'nri_vulkan_scheduler_loss':
+                    f = receipt['fixture']
+                    if f.get('expected_errors') != 1 or f.get('returned_waiters') != 2 or not all(f.get(k) is True for k in ('pending_accepted', 'later_rejected', 'failure_drained', 'accepted_copy_exact')):
+                        raise ValueError('Scheduler loss propagation coverage incomplete')
+                    drains = [json.loads(line.split('NRI_LEGACY_FAILURE_DRAIN ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_LEGACY_FAILURE_DRAIN ' in line]
+                    if not drains or any(r != {'pending_packets': 0, 'in_flight': 0} for r in drains):
+                        raise ValueError('Scheduler failure did not retire accepted work')
+                    receipt['scheduler_failure_drains'] = drains
                 if args.fixture == 'nri_vulkan_allocation_load':
                     f = receipt['fixture']
                     expected = {'cycles': 4, 'full_checks': 256, 'committed_allocations': 64, 'raw_allocations': 68, 'vma_allocations': 60, 'budget_samples': 22}

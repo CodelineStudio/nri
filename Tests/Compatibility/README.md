@@ -790,3 +790,33 @@ Use --fixture nri_vulkan_allocation_load. Native and extension-free 1.1 runs are
 bounded by the standard process watchdog. This qualifies real allocation churn,
 data preservation and release/reuse at the recorded load; it does not establish
 true memory exhaustion recovery, long-duration memory stability or device loss.
+
+### Controlled scheduler submission loss
+
+NRICompatibilitySchedulerLoss requires NO_TIMELINE=ON, FAIL_SUBMIT=2 and
+SUBMIT_DEVICE_LOST=ON. The latter changes only the existing private submission
+fault from OOM to DEVICE_LOST; it never resets or faults the actual Vulkan device.
+The fixture requires two graphics queues, without raising device admission limits.
+
+One real copy submission is accepted. Another queue accepts a future-dependent
+packet and two host threads wait for its completion. Injection rejects the
+producer before its native submission. The fixture requires the loss result,
+one matching error report, both host waiters returning, rejection of subsequent
+submissions and unchanged zero values for the rejected/deferred signals. NRI
+draining must retain the loss result while finishing previously native work;
+that copy's completion and every output word are verified before cleanup.
+Standalone diagnostics record zero pending packets and in-flight completions
+after failure draining. The earlier copy may finish before injection; this is
+not proof that it remained physically executing at that instant.
+
+Cleanup independently calls native device idle on the still-healthy test device
+before releasing resources, including on failed checks. This protects cleanup
+without establishing any success result for a lost production device. The normal
+configuration rejects running this fixture without its explicit fault profile.
+Use --fixture nri_vulkan_scheduler_loss with the bounded runner; it treats the
+one specific injected callback separately from unexpected validation errors.
+
+Native-modern/emulated-timeline and extension-free 1.1 profiles are required.
+This covers loss returned from submission, pending rejection and waiter behavior.
+Loss returned by native completion polling, promotion of an earlier OOM to loss,
+and genuine driver-loss recovery still require separate evidence.
