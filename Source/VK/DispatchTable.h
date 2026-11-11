@@ -155,6 +155,7 @@ struct DispatchTable {
     VK_FUNC(GetBufferMemoryRequirements2);                // + | +
     VK_FUNC(GetImageMemoryRequirements2);                 // + | +
                                                           // v1.2
+    VK_FUNC(CreateRenderPass);
     VK_FUNC(CreateRenderPass2);                           // + | +
     VK_FUNC(GetSemaphoreCounterValue);                    // + | + TODO: may return "VK_ERROR_DEVICE_LOST"
     VK_FUNC(WaitSemaphores);                              // + | + TODO: may return "VK_ERROR_DEVICE_LOST"

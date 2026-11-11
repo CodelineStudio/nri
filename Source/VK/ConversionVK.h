@@ -85,7 +85,10 @@ constexpr std::array<VkImageLayout, (size_t)Layout::MAX_NUM> g_ImageLayouts = {
 };
 NRI_VALIDATE_ARRAY(g_ImageLayouts);
 
-constexpr VkImageLayout GetImageLayout(Layout layout) {
+constexpr VkImageLayout GetImageLayout(Layout layout, bool dynamicRendering) {
+    if (layout == Layout::INPUT_ATTACHMENT && !dynamicRendering)
+        return VK_IMAGE_LAYOUT_GENERAL;
+
     return g_ImageLayouts[(size_t)layout];
 }
 

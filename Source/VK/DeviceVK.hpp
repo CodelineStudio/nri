@@ -952,6 +952,20 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     }), desiredDeviceExts.end());
 #endif
 
+#if NRI_COMPATIBILITY_RENDERPASS1 || NRI_COMPATIBILITY_RENDERPASS2
+    NRI_RETURN_ON_FAILURE(this, !isWrapper && m_MinorVersion == 1, Result::UNSUPPORTED, "Renderpass1 fixture requires an NRI-created Vulkan1.1 profile");
+    // Keep only the two temporary baseline prerequisites, plus renderpass2
+    // when testing that path. Other device extensions are genuinely absent.
+    desiredDeviceExts.erase(std::remove_if(desiredDeviceExts.begin(), desiredDeviceExts.end(), [](const char* extension) {
+#if NRI_COMPATIBILITY_RENDERPASS2
+        if (strcmp(extension, VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME) == 0 || strcmp(extension, VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME) == 0)
+            return false;
+#endif
+
+        return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) != 0 && strcmp(extension, VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME) != 0;
+    }), desiredDeviceExts.end());
+#endif
+
     { // Video codec operations enabled on the device
         VkVideoCodecOperationFlagsKHR enabledDecodeCodecOperations = 0;
         VkVideoCodecOperationFlagsKHR enabledEncodeCodecOperations = 0;
@@ -1270,7 +1284,6 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     m_IsMemoryZeroInitializationEnabled = desc.enableMemoryZeroInitialization && ZeroInitializeDeviceMemoryFeatures.zeroInitializeDeviceMemory;
 
     NRI_RETURN_ON_FAILURE(this, m_IsSupported.timelineSemaphore, Result::UNSUPPORTED, "Native timeline semaphore support is currently required; legacy value-fence emulation is not implemented yet");
-    NRI_RETURN_ON_FAILURE(this, m_IsSupported.renderPass2 || m_IsSupported.dynamicRendering, Result::UNSUPPORTED, "Renderpass1 fallback is not implemented yet; renderpass2 or dynamic rendering is currently required");
     NRI_RETURN_ON_FAILURE(this, m_IsSupported.hostQueryReset, Result::UNSUPPORTED, "Host query reset fallback is not implemented yet; hostQueryReset is currently required");
 
     if (!m_IsSupported.synchronization2)
@@ -1943,7 +1956,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             m_Desc.tiers.rayTracing = 3;
 
         m_Desc.tiers.shadingRate = FragmentShadingRateFeatures.pipelineFragmentShadingRate != 0 ? 1 : 0;
-        if (m_Desc.tiers.shadingRate && FragmentShadingRateFeatures.primitiveFragmentShadingRate && FragmentShadingRateFeatures.attachmentFragmentShadingRate)
+        if (m_Desc.tiers.shadingRate && FragmentShadingRateFeatures.primitiveFragmentShadingRate && FragmentShadingRateFeatures.attachmentFragmentShadingRate && (m_IsSupported.renderPass2 || m_IsSupported.dynamicRendering))
             m_Desc.tiers.shadingRate = 2;
 
         // TODO: seems to be the best match
@@ -1992,8 +2005,9 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             // Attachments: integer color formats require "SAMPLE_ZERO", which legacy render passes can't express
             m_Desc.resolve.attachment.color = ResolveOpBits::AVERAGE;
             m_Desc.resolve.attachment.colorInteger = (m_IsSupported.maintenance10 && m_IsSupported.dynamicRendering) ? ResolveOpBits::SAMPLE_ZERO : ResolveOpBits::NONE;
-            m_Desc.resolve.attachment.depth = depthOps;
-            m_Desc.resolve.attachment.stencil = stencilOps;
+            const bool hasAttachmentResolve = m_IsSupported.renderPass2 || m_IsSupported.dynamicRendering;
+            m_Desc.resolve.attachment.depth = hasAttachmentResolve ? depthOps : ResolveOpBits::NONE;
+            m_Desc.resolve.attachment.stencil = hasAttachmentResolve ? stencilOps : ResolveOpBits::NONE;
 
             // "CmdResolveTexture": resolve modes require "vkCmdResolveImage2" ("copyCommands2") and "maintenance10"
             const bool isModeSupported = m_IsSupported.maintenance10 && m_IsSupported.copyCommands2;
@@ -2816,6 +2830,8 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
     GET_DEVICE_CORE_FUNC(GetBufferMemoryRequirements2);
     GET_DEVICE_CORE_FUNC(GetImageMemoryRequirements2);
 
+    GET_DEVICE_CORE_FUNC(CreateRenderPass);
+
     // v1.2 or their explicitly enabled promoted extensions
     if (m_IsSupported.renderPass2)
         GET_DEVICE_PROMOTED_FUNC(CreateRenderPass2, 2, KHR);
@@ -3318,10 +3334,70 @@ NRI_INLINE VkRenderPass DeviceVK::GetOrCreateRenderPass(const RenderPassDesc& de
     }
 
     VkRenderPass renderPass = VK_NULL_HANDLE;
-    VkResult vkResult = m_VK.CreateRenderPass2(m_Device, &renderPassInfo, m_AllocationCallbackPtr, &renderPass);
+    VkResult vkResult;
+
+    if (m_IsSupported.renderPass2)
+        vkResult = m_VK.CreateRenderPass2(m_Device, &renderPassInfo, m_AllocationCallbackPtr, &renderPass);
+    else {
+        // The cache contains one subpass and color-only input attachments.
+        // Depth/stencil resolve and shading-rate attachments need renderpass2;
+        // their public capabilities are not advertised on this path.
+        NRI_CHECK(!desc.hasDepthResolve && !desc.hasStencilResolve && !desc.hasShadingRate, "Unsupported renderpass1 attachment");
+
+        Scratch<VkAttachmentDescription> legacyAttachments = NRI_ALLOCATE_SCRATCH(*this, VkAttachmentDescription, attachments.size());
+
+        for (uint32_t i = 0; i < (uint32_t)attachments.size(); i++) {
+            const VkAttachmentDescription2& source = attachments[i];
+            legacyAttachments[i] = {source.flags, source.format, source.samples, source.loadOp, source.storeOp, source.stencilLoadOp, source.stencilStoreOp, source.initialLayout, source.finalLayout};
+        }
+
+        Scratch<VkAttachmentReference> legacyColors = NRI_ALLOCATE_SCRATCH(*this, VkAttachmentReference, colors.size());
+        Scratch<VkAttachmentReference> legacyResolves = NRI_ALLOCATE_SCRATCH(*this, VkAttachmentReference, colorResolves.size());
+        Scratch<VkAttachmentReference> legacyInputs = NRI_ALLOCATE_SCRATCH(*this, VkAttachmentReference, inputs.size());
+
+        for (uint32_t i = 0; i < (uint32_t)colors.size(); i++)
+            legacyColors[i] = {colors[i].attachment, colors[i].layout};
+
+        for (uint32_t i = 0; i < (uint32_t)colorResolves.size(); i++)
+            legacyResolves[i] = {colorResolves[i].attachment, colorResolves[i].layout};
+
+        for (uint32_t i = 0; i < (uint32_t)inputs.size(); i++)
+            legacyInputs[i] = {inputs[i].attachment, inputs[i].layout};
+
+        VkAttachmentReference legacyDepthStencil = {depthStencil.attachment, depthStencil.layout};
+        VkSubpassDescription legacySubpass = {};
+        legacySubpass.pipelineBindPoint = subpass.pipelineBindPoint;
+        legacySubpass.colorAttachmentCount = subpass.colorAttachmentCount;
+        legacySubpass.pColorAttachments = legacyColors;
+        legacySubpass.pResolveAttachments = colorResolves.empty() ? nullptr : (const VkAttachmentReference*)legacyResolves;
+        legacySubpass.inputAttachmentCount = subpass.inputAttachmentCount;
+        legacySubpass.pInputAttachments = inputs.empty() ? nullptr : (const VkAttachmentReference*)legacyInputs;
+        legacySubpass.pDepthStencilAttachment = subpass.pDepthStencilAttachment ? &legacyDepthStencil : nullptr;
+        VkSubpassDependency legacyDependencies[2] = {};
+
+        for (uint32_t i = 0; i < dependencyNum; i++) {
+            const VkSubpassDependency2& source = dependencies[i];
+            legacyDependencies[i] = {source.srcSubpass, source.dstSubpass, source.srcStageMask, source.dstStageMask, source.srcAccessMask, source.dstAccessMask, source.dependencyFlags};
+        }
+
+        VkRenderPassMultiviewCreateInfo multiview = {VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO};
+        multiview.subpassCount = 1;
+        multiview.pViewMasks = &desc.viewMask;
+        multiview.correlationMaskCount = 1;
+        multiview.pCorrelationMasks = &desc.viewMask;
+        VkRenderPassCreateInfo legacyInfo = {VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+        legacyInfo.pNext = desc.viewMask ? &multiview : nullptr;
+        legacyInfo.attachmentCount = renderPassInfo.attachmentCount;
+        legacyInfo.pAttachments = legacyAttachments;
+        legacyInfo.subpassCount = 1;
+        legacyInfo.pSubpasses = &legacySubpass;
+        legacyInfo.dependencyCount = dependencyNum;
+        legacyInfo.pDependencies = dependencyNum ? legacyDependencies : nullptr;
+        vkResult = m_VK.CreateRenderPass(m_Device, &legacyInfo, m_AllocationCallbackPtr, &renderPass);
+    }
     if (vkResult < 0) {
         Result result = GetResultFromVkResult(vkResult);
-        ReportMessage(Message::ERROR, result, __FILE__, __LINE__, "vkCreateRenderPass2(): failed, result = 0x%08X (%d)!", vkResult, vkResult);
+        ReportMessage(Message::ERROR, result, __FILE__, __LINE__, "Render pass creation failed, result = 0x%08X (%d)!", vkResult, vkResult);
         return VK_NULL_HANDLE;
     }
 

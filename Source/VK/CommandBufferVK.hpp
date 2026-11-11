@@ -291,9 +291,10 @@ static inline RenderPassAttachmentDesc GetRenderPassAttachmentDesc(const Attachm
     out.sampleNum = (VkSampleCountFlagBits)texViewDesc.texture->GetDesc().sampleNum;
     out.loadOp = GetLoadOp(attachmentDesc.loadOp);
     out.storeOp = GetStoreOp(attachmentDesc.storeOp, storeOpNoneSupported);
-    out.stencilLoadOp = out.loadOp;
-    out.stencilStoreOp = out.storeOp;
-    out.layout = isInputAttachment ? VK_IMAGE_LAYOUT_RENDERING_LOCAL_READ : texViewDesc.expectedLayout;
+    const bool hasStencil = GetFormatProps(descriptorVK.GetFormat()).isStencil;
+    out.stencilLoadOp = hasStencil ? out.loadOp : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    out.stencilStoreOp = hasStencil ? out.storeOp : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    out.layout = isInputAttachment ? VK_IMAGE_LAYOUT_GENERAL : texViewDesc.expectedLayout;
 
     return out;
 }
@@ -2689,8 +2690,8 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
         out.srcAccessMask = GetAccessFlags(in.before.access);
         out.dstStageMask = GetPipelineStageFlags(in.after.stages) & ~unsupportedStages;
         out.dstAccessMask = GetAccessFlags(in.after.access);
-        out.oldLayout = GetImageLayout(in.before.layout);
-        out.newLayout = GetImageLayout(in.after.layout);
+        out.oldLayout = GetImageLayout(in.before.layout, m_Device.m_IsSupported.dynamicRendering);
+        out.newLayout = GetImageLayout(in.after.layout, m_Device.m_IsSupported.dynamicRendering);
         out.srcQueueFamilyIndex = GetQueueFamilyIndex(in.srcQueue, isConcurrent);
         out.dstQueueFamilyIndex = GetQueueFamilyIndex(in.dstQueue, isConcurrent);
         out.image = textureVK.GetHandle();

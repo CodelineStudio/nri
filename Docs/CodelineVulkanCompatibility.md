@@ -8,8 +8,16 @@ Vulkan1.1+, with individual feature/property structures and version/extension
 selected dispatch. Fixed descriptors, legacy format queries and subgroup/buffer
 limit normalization have basic-profile coverage on a modern device.
 
-**Temporary implementation prerequisites remain:** native timeline semaphores,
-host query reset, and either renderpass2 or dynamic rendering. Device creation
+Renderpass1 now supports the existing single-subpass cache, color/input/depth
+attachments, color resolves, multiview and dependencies. Legacy input attachment
+layouts use GENERAL consistently in barriers, descriptors and pipeline/render-pass
+descriptions. Depth-only attachments do not request nonexistent stencil clears.
+The fixture verifies clear/load/store and rectangular clears, input-attachment
+layouts, and two-view 4x MSAA color resolve with a depth attachment on renderpass1,
+renderpass2 and native dynamic rendering. Shader execution is still pending.
+
+**Temporary implementation prerequisites remain:** native timeline semaphores
+and host query reset. Device creation
 reports these missing implementations explicitly. They must be removed through
 real fallbacks before the required no-timeline Vulkan1.1 baseline is complete.
 The modern GPU requesting API1.1 is not a real older-driver acceptance result.
@@ -35,8 +43,8 @@ work, falsify capabilities or rely on externally installed development layers.
 3. Add legacy barrier/timestamp/submission translation and a formally specified
    value-fence fallback. Test waits-before-signals, repeated waits, fan-out,
    cross-queue ordering, CPU waits, completion, destruction and device loss.
-4. Complete renderpass1 (existing legacy rendering still uses CreateRenderPass2),
-   descriptor flags, format queries, query reset, memory flags/VMA negotiation,
+4. Qualify renderpass1 drawing/input reads and the existing descriptor/format
+   fallbacks; complete query reset, memory flags/VMA negotiation,
    optional indirect/address operations and presentation extension fallbacks.
 5. Qualify native1.1, extension-enabled1.1,1.2 and modern profiles. Test actual
    older Android devices and modern drivers with legacy paths forced, plus other

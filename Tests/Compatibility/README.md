@@ -10,6 +10,13 @@ queued waits, an empty submission and an older repeated wait), and waits for idl
 before teardown. Errors return nonzero.
 It also checks basic format/limit queries and creates a fixed descriptor layout,
 pool and set. These checks do not execute a shader or establish draw correctness.
+Rendering checks exercise clear/load/store, an asymmetric rectangular clear and
+cache reuse at mip1/layer1, first as an ordinary color attachment and then with
+an input-attachment layout. A two-view 4x MSAA pass includes a depth attachment
+and resolves both color layers; every output pixel is checked. These additional
+submissions advance the fence through value6. Input attachment shader reads and
+depth values are not verified by these clear/resolve tests. The layered fixture
+requires multiview with at least two views and 4x RGBA8/D32 sample support.
 Callback messages go to stderr; stdout contains a JSON result.
 
 ## Build and run
@@ -92,8 +99,18 @@ to check the actual manifest. Combine with FORCE_LEGACY_SYNC ON and
 structures, unavailable optional entry points stay null, format queries use core
 properties2, and buffer/subgroup limits use their core1.1 fallback values.
 
-Temporary required capabilities are native timeline semaphores, host query reset
-and renderpass2 or dynamic rendering. Missing capabilities return UNSUPPORTED
+`-DNRI_COMPATIBILITY_RENDERPASS1=ON` with API_MINOR=1 keeps only the timeline and
+host-query-reset device extensions. All newer rendering extensions are removed
+before feature queries and device creation, forcing vkCreateRenderPass and core
+copy/format/descriptor paths. `--require-renderpass1` verifies that exact manifest
+and the rendering readback results. For comparison, use RENDERPASS1=OFF and
+`-DNRI_COMPATIBILITY_RENDERPASS2=ON` with `--require-renderpass2`: this additionally
+enables create_renderpass2 and depth_stencil_resolve. The two options are mutually
+exclusive. Both require an NRI-owned API1.1 device. Combine with legacy sync, and
+turn both options off with API_MINOR=0 for the native dynamic-rendering comparison.
+
+Temporary required capabilities are native timeline semaphores and host query
+reset. Missing capabilities return UNSUPPORTED
 with a diagnostic identifying the unimplemented fallback. Full Vulkan1.1
 support requires these remaining implementations and actual legacy hardware.
 
@@ -102,7 +119,8 @@ legacy equivalents, and uses conservative all-commands / memory-access scopes
 for extension bits with no legacy spelling. Queue signals use the whole legacy
 submission scope. It does not add queue-idle waits.
 
-This is transfer/synchronization qualification, not Vulkan 1.1 acceptance.
+This is transfer/synchronization and offscreen attachment qualification, not
+Vulkan 1.1 acceptance.
 It does not exercise WSI, execute shaders, or prove future waits, fan-out, cross-queue ordering,
 device loss or memory pressure. The manifest records actual NRI-created device
 configuration; it is never inferred from NRI's version or adapter name. Later fixtures must

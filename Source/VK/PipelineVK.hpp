@@ -335,7 +335,7 @@ Result PipelineVK::Create(const GraphicsPipelineDesc& graphicsPipelineDesc) {
             RenderPassAttachmentDesc& color = renderPassDesc.colors.emplace_back();
             color.format = colorFormats[i];
             color.sampleNum = sampleNum;
-            color.layout = HasRenderPassInputAttachmentIndex(renderPassDesc.inputAttachmentIndices, i) ? VK_IMAGE_LAYOUT_RENDERING_LOCAL_READ : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            color.layout = HasRenderPassInputAttachmentIndex(renderPassDesc.inputAttachmentIndices, i) ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         }
 
         VkFormat depthStencilFormat = GetVkFormat(om.depthStencilFormat);

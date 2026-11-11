@@ -163,7 +163,7 @@ Result DescriptorVK::Create(const TextureViewDesc& textureViewDesc) {
 
     m_ViewDesc.texture = {};
     m_ViewDesc.texture.texture = &textureVK;
-    m_ViewDesc.texture.expectedLayout = GetImageLayout(GetTextureViewLayout(textureViewDescFixed));
+    m_ViewDesc.texture.expectedLayout = GetImageLayout(GetTextureViewLayout(textureViewDescFixed), m_Device.m_IsSupported.dynamicRendering);
     m_ViewDesc.texture.aspectMask = subresourceRange.aspectMask;
     m_ViewDesc.texture.layerOrSliceOffset = textureDesc.type == TextureType::TEXTURE_3D ? textureViewDescFixed.sliceOffset : textureViewDescFixed.layerOffset;
     m_ViewDesc.texture.layerOrSliceNum = textureDesc.type == TextureType::TEXTURE_3D ? sliceNum : layerNum;
