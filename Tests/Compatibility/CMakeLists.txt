@@ -110,6 +110,11 @@ target_compile_definitions(NRICompatibilityFenceSequences PRIVATE NRI_COMPATIBIL
 target_compile_definitions(NRICompatibilityBaseline PRIVATE NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
 
 enable_testing()
+add_executable(NRIBufferValidationTests buffer_validation.cpp)
+target_compile_features(NRIBufferValidationTests PRIVATE cxx_std_17)
+set_target_properties(NRIBufferValidationTests PROPERTIES CXX_EXTENSIONS OFF)
+target_include_directories(NRIBufferValidationTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../Include" "${CMAKE_CURRENT_LIST_DIR}/../../Source/Validation")
+add_test(NAME NRIBufferValidationTests COMMAND NRIBufferValidationTests)
 add_executable(NRILegacySynchronizationTests legacy_sync.cpp)
 target_compile_features(NRILegacySynchronizationTests PRIVATE cxx_std_17)
 include(FetchContent)

@@ -618,3 +618,14 @@ one out-of-range update and one out-of-range copy. All twenty-four diagnostics
 must be recognized before native execution, with subsequent exact output intact
 and zero native validation errors/warnings. These checks cover completed-work
 reuse; overlapping in-flight descriptor lifetimes remain a separate scenario.
+
+### Validation mapping recovery
+
+`NRIBufferValidationTests` compiles the actual `BufferVal.h` and `BufferVal.hpp`
+against a controlled core interface. A backend returning null must leave the
+buffer unmapped, permit an immediate retry, and reject an unmap until a map
+succeeds. The same test checks nested maps, double unmaps, unbound buffers,
+whole-buffer and last-byte access, and both offset and size addition overflow.
+The native interface must not be called for rejected ranges. This is a test of
+shared validation control flow; it does not emulate Vulkan cache coherency or
+claim a real driver mapping failure.
