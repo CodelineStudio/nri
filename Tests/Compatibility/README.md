@@ -577,3 +577,28 @@ still apply. Receipts distinguish embedded shaders from the actual runtime
 compute input, and driver-cache identities include the runtime binary and entry.
 The generic fixture does not contain consumer-engine source or implement a
 shipping compiler/cache service.
+
+### Allocation failure recovery and memory lifetime
+
+`NRICompatibilityMemoryLifetime` checks 64 cycles of two explicitly allocated
+upload buffers and two images: whole/partial mapping, exact buffer and image
+readback, command allocator reuse and resource destruction after confirmed GPU
+completion. Ordinary profiles alternate direct allocation and VMA allocation.
+The runner fixture name is `nri_vulkan_memory_lifetime`.
+
+`NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY=ON` forces legal dedicated allocations
+for this qualification. With `NRI_COMPATIBILITY_MEMORY_FAILURES=ON`, private
+backend instrumentation rejects the second buffer allocation, second buffer
+mapping and second image allocation. The fixture checks the returned errors,
+retries the same batches and verifies their eventual contents. The runner's
+`--require-memory-failures` requires all three recoveries and expected diagnostics.
+Successful preallocated resources survive a later batch preparation failure;
+failed mapping frees the new allocation before retry. Native validation must
+report no errors or warnings, including during teardown.
+
+Both switches default OFF and are standalone harness options, not production
+features. Failure-profile builds are only intended for this fixture; restore
+both switches before running the other fixtures. Injected errors do not prove
+behavior under actual exhausted device memory. This fixture does not establish
+noncoherent-memory coverage, descriptor reuse, overlapping in-flight resources
+or real legacy-device support; those remain separate acceptance cases.

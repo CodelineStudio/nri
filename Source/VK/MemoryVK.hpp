@@ -103,6 +103,11 @@ Result MemoryVK::CreateDedicated(const BufferVK* buffer, const TextureVK* textur
     MemoryTypeInfo memoryTypeInfo = Unpack(m_Type);
     NRI_CHECK(m_Type != std::numeric_limits<MemoryType>::max() && memoryTypeInfo.mustBeDedicated, "Shouldn't be there");
 
+    // A batch can fail while preparing a later resource, before native binding.
+    // Keep this successful preparation for a retry instead of reallocating it.
+    if (m_Handle)
+        return Result::SUCCESS;
+
     MemoryDesc memoryDesc = {};
     if (buffer)
         buffer->GetMemoryDesc(memoryTypeInfo.location, memoryDesc);
@@ -132,13 +137,36 @@ Result MemoryVK::CreateDedicated(const BufferVK* buffer, const TextureVK* textur
     memoryInfo.memoryTypeIndex = memoryTypeInfo.index;
 
     const auto& vk = m_Device.GetDispatchTable();
-    VkResult vkResult = vk.AllocateMemory(m_Device, &memoryInfo, m_Device.GetVkAllocationCallbacks(), &m_Handle);
-    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkAllocateMemory");
+    VkDeviceMemory handle = VK_NULL_HANDLE;
+    uint8_t* mappedMemory = nullptr;
+    bool failAllocation = false;
+
+#if NRI_COMPATIBILITY_MEMORY_FAILURES
+    static std::atomic<uint32_t> bufferAllocations{0}, textureAllocations{0};
+    failAllocation = (buffer ? ++bufferAllocations : ++textureAllocations) == 2;
+#endif
+
+    VkResult vkResult = failAllocation ? VK_ERROR_OUT_OF_DEVICE_MEMORY : vk.AllocateMemory(m_Device, &memoryInfo, m_Device.GetVkAllocationCallbacks(), &handle);
+    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkAllocateMemory(dedicated)");
 
     if (IsHostVisibleMemory(memoryTypeInfo.location)) {
-        vkResult = vk.MapMemory(m_Device, m_Handle, 0, memoryDesc.size, 0, (void**)&m_MappedMemory);
-        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkMapMemory");
+        bool failMapping = false;
+
+#if NRI_COMPATIBILITY_MEMORY_FAILURES
+        static std::atomic<uint32_t> bufferMappings{0};
+        failMapping = buffer && ++bufferMappings == 2;
+#endif
+
+        vkResult = failMapping ? VK_ERROR_MEMORY_MAP_FAILED : vk.MapMemory(m_Device, handle, 0, memoryDesc.size, 0, (void**)&mappedMemory);
+
+        if (vkResult != VK_SUCCESS)
+            vk.FreeMemory(m_Device, handle, m_Device.GetVkAllocationCallbacks());
+
+        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkMapMemory(dedicated)");
     }
+
+    m_Handle = handle;
+    m_MappedMemory = mappedMemory;
 
     return Result::SUCCESS;
 }

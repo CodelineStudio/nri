@@ -2490,6 +2490,10 @@ bool DeviceVK::GetMemoryDesc(MemoryLocation memoryLocation, const VkMemoryRequir
     // "prefersDedicatedAllocation" seems to be "too soft" making more allocations "dedicated", "requiresDedicatedAllocation" better matches D3D12
     memoryTypeInfo.mustBeDedicated = memoryDedicatedRequirements.requiresDedicatedAllocation;
 
+#if NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY
+    memoryTypeInfo.mustBeDedicated = true;
+#endif
+
     memoryDesc.size = memoryRequirements.size;
     memoryDesc.alignment = (uint32_t)memoryRequirements.alignment;
     memoryDesc.type = Pack(memoryTypeInfo);
@@ -4487,8 +4491,12 @@ NRI_INLINE Result DeviceVK::BindBufferMemory(const BindBufferMemoryDesc* bindBuf
         MemoryVK& memoryVK = *(MemoryVK*)bindBufferMemoryDesc.memory;
 
         MemoryTypeInfo memoryTypeInfo = Unpack(memoryVK.GetType());
-        if (memoryTypeInfo.mustBeDedicated)
-            memoryVK.CreateDedicated(&bufferVK, nullptr);
+        if (memoryTypeInfo.mustBeDedicated) {
+            Result result = memoryVK.CreateDedicated(&bufferVK, nullptr);
+
+            if (result != Result::SUCCESS)
+                return result;
+        }
 
         VkBindBufferMemoryInfo& info = infos[i];
         info = {VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_INFO};
@@ -4521,8 +4529,12 @@ NRI_INLINE Result DeviceVK::BindTextureMemory(const BindTextureMemoryDesc* bindT
         TextureVK& textureVK = *(TextureVK*)bindTextureMemoryDesc.texture;
 
         MemoryTypeInfo memoryTypeInfo = Unpack(memoryVK.GetType());
-        if (memoryTypeInfo.mustBeDedicated)
-            memoryVK.CreateDedicated(nullptr, &textureVK);
+        if (memoryTypeInfo.mustBeDedicated) {
+            Result result = memoryVK.CreateDedicated(nullptr, &textureVK);
+
+            if (result != Result::SUCCESS)
+                return result;
+        }
 
         VkBindImageMemoryInfo& info = infos[i];
         info = {VK_STRUCTURE_TYPE_BIND_IMAGE_MEMORY_INFO};

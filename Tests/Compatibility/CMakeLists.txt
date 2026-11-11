@@ -11,6 +11,15 @@ if(NOT NRI_ENABLE_VK_SUPPORT)
     message(FATAL_ERROR "NRICompatibilityBaseline requires NRI_ENABLE_VK_SUPPORT")
 endif()
 
+option(NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY "Force legal dedicated allocations for memory-failure qualification" OFF)
+option(NRI_COMPATIBILITY_MEMORY_FAILURES "Inject one buffer/image allocation failure and one buffer map failure" OFF)
+if(NRI_COMPATIBILITY_MEMORY_FAILURES AND NOT NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY)
+    message(FATAL_ERROR "Memory failure qualification requires FORCE_DEDICATED_MEMORY")
+endif()
+target_compile_definitions(NRI_VK PRIVATE
+    NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY=$<BOOL:${NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY}>
+    NRI_COMPATIBILITY_MEMORY_FAILURES=$<BOOL:${NRI_COMPATIBILITY_MEMORY_FAILURES}>)
+
 option(NRI_COMPATIBILITY_NO_INDIRECT_FIRST_INSTANCE "Disable only indirect first instance" OFF)
 option(NRI_COMPATIBILITY_NO_SHADER_DRAW_PARAMETERS "Disable only shader draw parameters" OFF)
 if(NRI_COMPATIBILITY_NO_INDIRECT_FIRST_INSTANCE)
@@ -136,6 +145,17 @@ target_compile_definitions(NRICompatibilityQueryReset PRIVATE
     NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
     NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 
+add_executable(NRICompatibilityMemoryLifetime memory_lifetime.cpp)
+target_compile_features(NRICompatibilityMemoryLifetime PRIVATE cxx_std_17)
+set_target_properties(NRICompatibilityMemoryLifetime PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(NRICompatibilityMemoryLifetime PRIVATE NRI)
+target_compile_definitions(NRICompatibilityMemoryLifetime PRIVATE
+    NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+    NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+    NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>
+    NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY=$<BOOL:${NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY}>
+    NRI_COMPATIBILITY_MEMORY_FAILURES=$<BOOL:${NRI_COMPATIBILITY_MEMORY_FAILURES}>)
+
 if(WIN32)
     add_executable(NRICompatibilityPresentation presentation_win32.cpp)
     target_compile_features(NRICompatibilityPresentation PRIVATE cxx_std_17)
@@ -222,6 +242,9 @@ if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_
 endif()
 
 if(NOT NRI_STATIC_LIBRARY)
+    add_custom_command(TARGET NRICompatibilityMemoryLifetime POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityMemoryLifetime>"
+        VERBATIM)
     add_custom_command(TARGET NRICompatibilityQueryReset POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityQueryReset>"
         VERBATIM)

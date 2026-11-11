@@ -16,7 +16,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
-    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution"), default="nri_vulkan_buffer_baseline")
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -44,7 +44,10 @@ def main():
     parser.add_argument('--compute-entry', default='computeMain')
     parser.add_argument('--compute-xor', type=int, default=0)
     parser.add_argument('--compute-validator', type=Path)
+    parser.add_argument("--require-memory-failures", action="store_true")
     args = parser.parse_args()
+    if args.require_memory_failures and args.fixture != "nri_vulkan_memory_lifetime":
+        parser.error("Memory failure requirements need the memory lifetime fixture")
     if args.compute_input and (args.fixture != 'nri_vulkan_shader_execution' or not args.compute_validator):
         parser.error('External compute input requires shader fixture and SPIR-V validator')
     if not 0 <= args.compute_xor <= 0xffffffff or (args.compute_xor and not args.compute_input):
@@ -115,6 +118,13 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.fixture == 'nri_vulkan_memory_lifetime':
+                    memory = receipt['fixture']
+                    expected = 3 if memory.get('memory_failures') else 0
+                    if memory.get('exact_cycles') != 64 or memory.get('recoveries') != expected or memory.get('expected_errors') != expected:
+                        raise ValueError('Memory retirement/readback or failure recovery incomplete')
+                    if args.require_memory_failures and not (memory.get('forced_dedicated') and memory.get('memory_failures')):
+                        raise ValueError('Memory failure profile not active')
                 if args.fixture == 'nri_vulkan_shader_execution' and (receipt['fixture'].get('exact_cycles') != 8 or receipt['fixture'].get('indirect_cycles') != 8 or receipt['fixture'].get('indexed_offset_cases') != 8 or receipt['fixture'].get('graphics_state_cases') != 8 or receipt['fixture'].get('max_channel_error', 256) > 1):
                     raise ValueError('Shader/graphics-state output checks did not pass')
                 if args.fixture == 'nri_vulkan_shader_execution':
@@ -218,7 +228,7 @@ def main():
                     if args.fixture == 'nri_vulkan_shader_execution':
                         if receipt['fixture'].get('exact_cycles') != 8:
                             raise ValueError('Shader execution cycles did not pass')
-                    elif not all(receipt['fixture'].get(key) for key in ('render_exact', 'input_attachment_exact', 'resolve_exact')):
+                    elif args.fixture == 'nri_vulkan_buffer_baseline' and not all(receipt['fixture'].get(key) for key in ('render_exact', 'input_attachment_exact', 'resolve_exact')):
                         raise ValueError("Rendering pixel checks did not pass")
                 if args.require_basic_optionals:
                     fields = ('device_address', 'descriptor_indexing', 'draw_indirect_count', 'format_feature_flags2')

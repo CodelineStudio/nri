@@ -201,8 +201,12 @@ Result BufferVK::BindMemory(MemoryVK& memory, uint64_t offset, bool bindMemory) 
     // Bind memory
     if (bindMemory) {
         MemoryTypeInfo memoryTypeInfo = Unpack(memory.GetType());
-        if (memoryTypeInfo.mustBeDedicated)
-            memory.CreateDedicated(this, nullptr);
+        if (memoryTypeInfo.mustBeDedicated) {
+            Result result = memory.CreateDedicated(this, nullptr);
+
+            if (result != Result::SUCCESS)
+                return result;
+        }
 
         VkBindBufferMemoryInfo bindBufferMemoryInfo = {VK_STRUCTURE_TYPE_BIND_BUFFER_MEMORY_INFO};
         bindBufferMemoryInfo.buffer = m_Handle;
