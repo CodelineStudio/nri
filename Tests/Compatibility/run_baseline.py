@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--adapter", type=int, default=0)
     parser.add_argument("--validation", action="store_true")
     parser.add_argument("--require-native-validation", action="store_true")
+    parser.add_argument("--require-legacy-sync", action="store_true")
     args = parser.parse_args()
     if not 0 < args.timeout <= 600 or args.adapter < 0:
         parser.error("timeout must be in (0,600] seconds and adapter must be nonnegative")
@@ -66,6 +67,8 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.require_legacy_sync and (manifest["device"]["synchronization2"] != 0 or not receipt["fixture"].get("legacy_sync_forced")):
+                    raise ValueError("Required forced legacy synchronization is not active")
                 active = manifest["instance"]["native_validation_active"]
                 receipt["fixture"]["native_validation_active"] = active
                 if args.require_native_validation and not active:

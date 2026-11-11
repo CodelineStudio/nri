@@ -1,6 +1,9 @@
 # Vulkan 1.1+ compatibility workstream
 
-Status: preparation/source audit only; compatibility is not implemented yet.
+Status: partial implementation; full Vulkan 1.1 compatibility is not implemented
+or qualified yet. Legacy barrier, timestamp and queue-submission paths are
+implemented with native timeline semaphores; see `Tests/Compatibility` for the
+feature-disabled fixture. Device creation still requires Vulkan 1.2 or newer.
 Baseline upstream: `a20efc8f7c6e4e6045acd6f29bf90b0d26ac3df5`.
 Fork branch: `codeline/vulkan-1.1`. Vulkan 1.0 and GLES are outside this work.
 

@@ -2728,7 +2728,62 @@ NRI_INLINE void CommandBufferVK::Barrier(const BarrierDesc& barrierDesc) {
         dependencyInfo.dependencyFlags |= VK_DEPENDENCY_BY_REGION_BIT;
 
     const auto& vk = m_Device.GetDispatchTable();
-    vk.CmdPipelineBarrier2(m_Handle, &dependencyInfo);
+    if (m_Device.m_IsSupported.synchronization2) {
+        vk.CmdPipelineBarrier2(m_Handle, &dependencyInfo);
+
+        return;
+    }
+
+    VkPipelineStageFlags2 sourceStages = 0;
+    VkPipelineStageFlags2 destinationStages = 0;
+    Scratch<VkMemoryBarrier> legacyMemory = NRI_ALLOCATE_SCRATCH(m_Device, VkMemoryBarrier, barrierDesc.globalNum);
+
+    for (uint32_t i = 0; i < barrierDesc.globalNum; i++) {
+        const VkMemoryBarrier2& in = memoryBarriers[i];
+        legacyMemory[i] = {VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+        legacyMemory[i].srcAccessMask = GetLegacyAccess(in.srcAccessMask);
+        legacyMemory[i].dstAccessMask = GetLegacyAccess(in.dstAccessMask);
+        sourceStages |= in.srcStageMask;
+        destinationStages |= in.dstStageMask;
+    }
+
+    Scratch<VkBufferMemoryBarrier> legacyBuffers = NRI_ALLOCATE_SCRATCH(m_Device, VkBufferMemoryBarrier, barrierDesc.bufferNum);
+
+    for (uint32_t i = 0; i < barrierDesc.bufferNum; i++) {
+        const VkBufferMemoryBarrier2& in = bufferBarriers[i];
+        VkBufferMemoryBarrier& out = legacyBuffers[i];
+        out = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        out.srcAccessMask = GetLegacyAccess(in.srcAccessMask);
+        out.dstAccessMask = GetLegacyAccess(in.dstAccessMask);
+        out.srcQueueFamilyIndex = in.srcQueueFamilyIndex;
+        out.dstQueueFamilyIndex = in.dstQueueFamilyIndex;
+        out.buffer = in.buffer;
+        out.offset = in.offset;
+        out.size = in.size;
+        sourceStages |= in.srcStageMask;
+        destinationStages |= in.dstStageMask;
+    }
+
+    Scratch<VkImageMemoryBarrier> legacyTextures = NRI_ALLOCATE_SCRATCH(m_Device, VkImageMemoryBarrier, barrierDesc.textureNum);
+
+    for (uint32_t i = 0; i < barrierDesc.textureNum; i++) {
+        const VkImageMemoryBarrier2& in = textureBarriers[i];
+        VkImageMemoryBarrier& out = legacyTextures[i];
+        out = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        out.srcAccessMask = GetLegacyAccess(in.srcAccessMask);
+        out.dstAccessMask = GetLegacyAccess(in.dstAccessMask);
+        out.oldLayout = in.oldLayout;
+        out.newLayout = in.newLayout;
+        out.srcQueueFamilyIndex = in.srcQueueFamilyIndex;
+        out.dstQueueFamilyIndex = in.dstQueueFamilyIndex;
+        out.image = in.image;
+        out.subresourceRange = in.subresourceRange;
+        sourceStages |= in.srcStageMask;
+        destinationStages |= in.dstStageMask;
+    }
+
+    vk.CmdPipelineBarrier(m_Handle, GetLegacyPipelineStages(sourceStages, true), GetLegacyPipelineStages(destinationStages, false), dependencyInfo.dependencyFlags,
+        barrierDesc.globalNum, legacyMemory, barrierDesc.bufferNum, legacyBuffers, barrierDesc.textureNum, legacyTextures);
 }
 
 NRI_INLINE void CommandBufferVK::BeginQuery(QueryPool& queryPool, uint32_t offset) {
@@ -2744,7 +2799,10 @@ NRI_INLINE void CommandBufferVK::EndQuery(QueryPool& queryPool, uint32_t offset)
     if (queryPoolVK.GetType() == VK_QUERY_TYPE_TIMESTAMP) {
         // TODO: https://registry.khronos.org/vulkan/specs/latest/man/html/vkCmdWriteTimestamp.html
         // https://docs.vulkan.org/samples/latest/samples/api/timestamp_queries/README.html
-        vk.CmdWriteTimestamp2(m_Handle, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPoolVK.GetHandle(), offset);
+        if (m_Device.m_IsSupported.synchronization2)
+            vk.CmdWriteTimestamp2(m_Handle, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPoolVK.GetHandle(), offset);
+        else
+            vk.CmdWriteTimestamp(m_Handle, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, queryPoolVK.GetHandle(), offset);
     } else
         vk.CmdEndQuery(m_Handle, queryPoolVK.GetHandle(), offset);
 }

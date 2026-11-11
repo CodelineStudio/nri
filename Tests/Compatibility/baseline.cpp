@@ -64,6 +64,11 @@ struct Fixture {
     nri::CommandAllocator* allocator = nullptr;
     nri::CommandBuffer* command = nullptr;
     nri::Fence* fence = nullptr;
+    nri::Texture* texture = nullptr;
+    nri::QueryPool* queries = nullptr;
+    nri::Buffer* queryReadback = nullptr;
+    bool imageExact = false;
+    bool timestampsOrdered = false;
     std::array<nri::Buffer*, 3> buffers{};
     nri::AdapterDesc adapter = {};
     std::string failure;
@@ -133,6 +138,27 @@ struct Fixture {
                 return false;
         }
 
+        // Exercise one nonzero mip and array layer; barriers must retain the
+        // exact subresource and layouts during legacy translation.
+        nri::TextureDesc image = {};
+        image.type = nri::TextureType::TEXTURE_2D;
+        image.usage = nri::TextureUsageBits::SHADER_RESOURCE;
+        image.format = nri::Format::RGBA8_UNORM;
+        image.width = 128;
+        image.height = 32;
+        image.mipNum = 2;
+        image.layerNum = 2;
+        nri::QueryPoolDesc queryDescription = {};
+        queryDescription.queryType = nri::QueryType::TIMESTAMP;
+        queryDescription.capacity = 2;
+        nri::BufferDesc queryBuffer = {};
+        queryBuffer.size = 2 * sizeof(uint64_t);
+
+        if (!Check(core.CreateCommittedTexture(*device, nri::MemoryLocation::DEVICE, 0.0f, image, texture), "CreateCommittedTexture") ||
+            !Check(core.CreateQueryPool(*device, queryDescription, queries), "CreateQueryPool") ||
+            !Check(core.CreateCommittedBuffer(*device, nri::MemoryLocation::HOST_READBACK, 0.0f, queryBuffer, queryReadback), "CreateQueryReadback"))
+            return false;
+
         std::array<uint8_t, BYTE_COUNT> expected = {};
 
         for (uint32_t i = 0; i < BYTE_COUNT; ++i)
@@ -154,12 +180,16 @@ struct Fixture {
             !Check(core.BeginCommandBuffer(*command, nullptr), "BeginCommandBuffer"))
             return false;
 
+        core.CmdResetQueries(*command, *queries, 0, 2);
+        core.CmdEndQuery(*command, *queries, 0);
         GlobalBarrier(nri::AccessBits::HOST_WRITE, nri::StageBits::HOST, nri::AccessBits::COPY_SOURCE, nri::StageBits::COPY);
         Barrier(*buffers[1], nri::AccessBits::NONE, nri::StageBits::NONE, nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY);
         core.CmdCopyBuffer(*command, *buffers[1], 0, *buffers[0], 0, BYTE_COUNT);
         Barrier(*buffers[1], nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY, nri::AccessBits::COPY_SOURCE, nri::StageBits::COPY);
         Barrier(*buffers[2], nri::AccessBits::NONE, nri::StageBits::NONE, nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY);
         core.CmdCopyBuffer(*command, *buffers[2], 0, *buffers[1], 0, BYTE_COUNT);
+        // The second copy overwrites the readback with the same pattern through
+        // the image, so separately verify the original buffer copy below first.
         GlobalBarrier(nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY, nri::AccessBits::HOST_READ, nri::StageBits::HOST);
 
         if (!Check(core.EndCommandBuffer(*command), "EndCommandBuffer"))
@@ -202,19 +232,101 @@ struct Fixture {
             return false;
         }
 
+        core.ResetCommandAllocator(*allocator);
+
+        if (!Check(core.BeginCommandBuffer(*command, nullptr), "BeginCommandBuffer(image)"))
+            return false;
+
+        nri::TextureBarrierDesc imageBarrier = {};
+        imageBarrier.texture = texture;
+        imageBarrier.before = {nri::AccessBits::NONE, nri::Layout::UNDEFINED, nri::StageBits::NONE};
+        imageBarrier.after = {nri::AccessBits::COPY_DESTINATION, nri::Layout::COPY_DESTINATION, nri::StageBits::COPY};
+        imageBarrier.mipOffset = 1;
+        imageBarrier.mipNum = 1;
+        imageBarrier.layerOffset = 1;
+        imageBarrier.layerNum = 1;
+        imageBarrier.planes = nri::PlaneBits::COLOR;
+        nri::BarrierDesc imageBarriers = {};
+        imageBarriers.textures = &imageBarrier;
+        imageBarriers.textureNum = 1;
+        core.CmdBarrier(*command, imageBarriers);
+        nri::TextureRegionDesc region = {};
+        region.width = 64;
+        region.height = 16;
+        region.depth = 1;
+        region.mipOffset = 1;
+        region.layerOffset = 1;
+        region.planes = nri::PlaneBits::COLOR;
+        nri::TextureDataLayoutDesc imageData = {};
+        imageData.rowPitch = 256;
+        imageData.slicePitch = BYTE_COUNT;
+        core.CmdUploadBufferToTexture(*command, *texture, region, *buffers[0], imageData);
+        imageBarrier.before = imageBarrier.after;
+        imageBarrier.after = {nri::AccessBits::COPY_SOURCE, nri::Layout::COPY_SOURCE, nri::StageBits::COPY};
+        core.CmdBarrier(*command, imageBarriers);
+        Barrier(*buffers[2], nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY, nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY);
+        // Erase the earlier matching buffer result, so an omitted image copy
+        // cannot accidentally pass by leaving the previous pattern untouched.
+        core.CmdZeroBuffer(*command, *buffers[2], 0, BYTE_COUNT);
+        Barrier(*buffers[2], nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY, nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY);
+        core.CmdReadbackTextureToBuffer(*command, *buffers[2], imageData, *texture, region);
+        core.CmdEndQuery(*command, *queries, 1);
+        Barrier(*queryReadback, nri::AccessBits::NONE, nri::StageBits::NONE, nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY);
+        core.CmdCopyQueries(*command, *queries, 0, 2, *queryReadback, 0);
+        GlobalBarrier(nri::AccessBits::COPY_DESTINATION, nri::StageBits::COPY, nri::AccessBits::HOST_READ, nri::StageBits::HOST);
+
+        if (!Check(core.EndCommandBuffer(*command), "EndCommandBuffer(image)"))
+            return false;
+
+        nri::FenceSubmitDesc wait = signal;
+        signal.value = 2;
+        submit.waitFences = &wait;
+        submit.waitFenceNum = 1;
+
+        if (!Check(core.QueueSubmit(*queue, submit), "QueueSubmit(image with wait)"))
+            return false;
+        core.Wait(*fence, 2);
+        mapped = core.MapBuffer(*buffers[2], 0, BYTE_COUNT);
+
+        if (!mapped) {
+            failure = "MapBuffer(image readback) returned null";
+
+            return false;
+        }
+        imageExact = std::memcmp(mapped, expected.data(), BYTE_COUNT) == 0;
+        core.UnmapBuffer(*buffers[2]);
+        mapped = core.MapBuffer(*queryReadback, 0, queryBuffer.size);
+
+        if (!mapped) {
+            failure = "MapBuffer(query readback) returned null";
+
+            return false;
+        }
+        std::array<uint64_t, 2> timestamps = {};
+        std::memcpy(timestamps.data(), mapped, sizeof(timestamps));
+        core.UnmapBuffer(*queryReadback);
+        timestampsOrdered = timestamps[0] != 0 && timestamps[1] >= timestamps[0];
+
+        if (!imageExact || !timestampsOrdered) {
+            failure = "Image readback or timestamp ordering mismatch";
+
+            return false;
+        }
+
         // Empty submission signals a later value. Repeated waiting for an older
         // value must remain valid; this is not a fan-out/future-wait stress test.
-        signal.value = 2;
+        wait.value = 2;
+        signal.value = 3;
         submit.commandBuffers = nullptr;
         submit.commandBufferNum = 0;
 
         if (!Check(core.QueueSubmit(*queue, submit), "QueueSubmit(empty signal)"))
             return false;
-        core.Wait(*fence, 2);
+        core.Wait(*fence, 3);
         core.Wait(*fence, 1);
         completedValue = core.GetFenceValue(*fence);
 
-        if (completedValue < 2) {
+        if (completedValue < 3) {
             failure = "Fence value did not reach second signal";
 
             return false;
@@ -263,6 +375,15 @@ struct Fixture {
             if (fence)
                 core.DestroyFence(fence);
 
+            if (queries)
+                core.DestroyQueryPool(queries);
+
+            if (queryReadback)
+                core.DestroyBuffer(queryReadback);
+
+            if (texture)
+                core.DestroyTexture(texture);
+
             for (nri::Buffer* buffer : buffers) {
                 if (buffer)
                     core.DestroyBuffer(buffer);
@@ -308,11 +429,12 @@ int main(int argc, char** argv) {
     passed = fixture.Cleanup() && passed;
     passed = passed && fixture.diagnostics.errors.load() == 0;
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
-    const int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_buffer_baseline\",\"status\":\"%s\",\"source_commit\":%s,\"compiler\":%s,\"nri_version\":%u,\"backend\":\"Vulkan\",\"adapter_index\":%u,\"adapter_name\":%s,\"vendor\":%u,\"device_id\":%u,\"driver_version_raw\":%u,\"validation_requested\":%s,\"native_validation_active\":null,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_bytes\":%s,\"byte_count\":%u,\"completed_fence_value\":%llu,\"elapsed_seconds\":%.6f,\"failure\":%s,\"legacy_path_forced\":false,\"legacy_support_verified\":false,\"api_versions_and_enabled_extensions\":null}\n",
+    const int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_buffer_baseline\",\"status\":\"%s\",\"source_commit\":%s,\"compiler\":%s,\"nri_version\":%u,\"backend\":\"Vulkan\",\"adapter_index\":%u,\"adapter_name\":%s,\"vendor\":%u,\"device_id\":%u,\"driver_version_raw\":%u,\"validation_requested\":%s,\"native_validation_active\":null,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_bytes\":%s,\"byte_count\":%u,\"completed_fence_value\":%llu,\"elapsed_seconds\":%.6f,\"failure\":%s,\"image_exact\":%s,\"timestamps_ordered\":%s,\"legacy_sync_forced\":%s,\"legacy_support_verified\":false,\"api_versions_and_enabled_extensions\":null}\n",
         passed ? "passed" : "failed", JsonString(NRI_COMPATIBILITY_SOURCE_COMMIT).c_str(), JsonString(NRI_COMPATIBILITY_COMPILER).c_str(), unsigned(NRI_VERSION), adapterIndex,
         JsonString(fixture.adapter.name).c_str(), unsigned(fixture.adapter.vendor), fixture.adapter.deviceId, fixture.adapter.driverVersion, validation ? "true" : "false",
         fixture.diagnostics.errors.load(), fixture.diagnostics.warnings.load(), fixture.exactBytes ? "true" : "false", Fixture::BYTE_COUNT,
-        static_cast<unsigned long long>(fixture.completedValue), seconds, JsonString(fixture.failure.c_str()).c_str());
+        static_cast<unsigned long long>(fixture.completedValue), seconds, JsonString(fixture.failure.c_str()).c_str(),
+        fixture.imageExact ? "true" : "false", fixture.timestampsOrdered ? "true" : "false", NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false");
 
     // Deliver the receipt before process/static teardown; do not treat an
     // unsuccessful write as a passed test even if the GPU checks completed.

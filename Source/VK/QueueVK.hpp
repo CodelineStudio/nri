@@ -120,8 +120,55 @@ NRI_INLINE Result QueueVK::Submit(const QueueSubmitDesc& queueSubmitDesc) {
     }
 
     const auto& vk = m_Device.GetDispatchTable();
-    VkResult vkResult = vk.QueueSubmit2(m_Handle, 1, &submitInfo, VK_NULL_HANDLE);
-    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "QueueSubmit2");
+    VkResult vkResult;
+
+    if (m_Device.m_IsSupported.synchronization2)
+        vkResult = vk.QueueSubmit2(m_Handle, 1, &submitInfo, VK_NULL_HANDLE);
+    else {
+        Scratch<VkSemaphore> waits = NRI_ALLOCATE_SCRATCH(m_Device, VkSemaphore, queueSubmitDesc.waitFenceNum);
+        Scratch<uint64_t> waitValues = NRI_ALLOCATE_SCRATCH(m_Device, uint64_t, queueSubmitDesc.waitFenceNum);
+        Scratch<VkPipelineStageFlags> waitStages = NRI_ALLOCATE_SCRATCH(m_Device, VkPipelineStageFlags, queueSubmitDesc.waitFenceNum);
+
+        for (uint32_t i = 0; i < queueSubmitDesc.waitFenceNum; i++) {
+            waits[i] = waitSemaphores[i].semaphore;
+            waitValues[i] = waitSemaphores[i].value;
+            waitStages[i] = GetLegacyPipelineStages(waitSemaphores[i].stageMask, false);
+        }
+
+        Scratch<VkSemaphore> signals = NRI_ALLOCATE_SCRATCH(m_Device, VkSemaphore, queueSubmitDesc.signalFenceNum);
+        Scratch<uint64_t> signalValues = NRI_ALLOCATE_SCRATCH(m_Device, uint64_t, queueSubmitDesc.signalFenceNum);
+
+        for (uint32_t i = 0; i < queueSubmitDesc.signalFenceNum; i++) {
+            signals[i] = signalSemaphores[i].semaphore;
+            signalValues[i] = signalSemaphores[i].value;
+        }
+
+        Scratch<VkCommandBuffer> commands = NRI_ALLOCATE_SCRATCH(m_Device, VkCommandBuffer, queueSubmitDesc.commandBufferNum);
+
+        for (uint32_t i = 0; i < queueSubmitDesc.commandBufferNum; i++)
+            commands[i] = commandBuffers[i].commandBuffer;
+
+        // Timeline remains native in this path. Binary swap-chain entries use
+        // the same arrays; Vulkan ignores their corresponding values.
+        VkTimelineSemaphoreSubmitInfo timeline = {VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO};
+        timeline.pNext = submitInfo.pNext;
+        timeline.waitSemaphoreValueCount = queueSubmitDesc.waitFenceNum;
+        timeline.pWaitSemaphoreValues = waitValues;
+        timeline.signalSemaphoreValueCount = queueSubmitDesc.signalFenceNum;
+        timeline.pSignalSemaphoreValues = signalValues;
+
+        VkSubmitInfo legacy = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        legacy.pNext = &timeline;
+        legacy.waitSemaphoreCount = queueSubmitDesc.waitFenceNum;
+        legacy.pWaitSemaphores = waits;
+        legacy.pWaitDstStageMask = waitStages;
+        legacy.commandBufferCount = queueSubmitDesc.commandBufferNum;
+        legacy.pCommandBuffers = commands;
+        legacy.signalSemaphoreCount = queueSubmitDesc.signalFenceNum;
+        legacy.pSignalSemaphores = signals;
+        vkResult = vk.QueueSubmit(m_Handle, 1, &legacy, VK_NULL_HANDLE);
+    }
+    NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "QueueSubmit");
 
     return Result::SUCCESS;
 }

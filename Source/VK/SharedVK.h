@@ -9,6 +9,7 @@
 #undef CreateSemaphore
 
 #include "DispatchTable.h"
+#include "LegacySynchronizationVK.h"
 #include "SharedExternal.h"
 #include "VideoHelpersVK.h"
 

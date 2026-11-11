@@ -106,6 +106,7 @@ struct IsSupported {
     uint32_t deviceAddress                : 1;
     uint32_t deviceFault                  : 1;
     uint32_t deviceFaultVendorBinary      : 1;
+    uint32_t synchronization2             : 1;
     uint32_t dynamicRendering             : 1;
     uint32_t storeOpNone                  : 1;
     uint32_t copyCommands2                : 1;

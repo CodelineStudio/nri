@@ -1033,6 +1033,15 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     if (m_MinorVersion > 2)
         ExtendedDynamicStateFeatures.extendedDynamicState = true;
 
+#if NRI_COMPATIBILITY_FORCE_LEGACY_SYNC
+    // Standalone fixture only: disable the real feature before device creation.
+    // External devices cannot be retroactively changed by a test profile.
+    NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "Forced legacy synchronization requires an NRI-created device");
+    features13.synchronization2 = VK_FALSE;
+    Synchronization2Features.synchronization2 = VK_FALSE;
+#endif
+
+    m_IsSupported.synchronization2 = features13.synchronization2;
     m_IsSupported.maintenance4 = features13.maintenance4;
     m_IsSupported.maintenance5 = features14.maintenance5;
     m_IsSupported.maintenance6 = features14.maintenance6;
@@ -1074,8 +1083,8 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 
     m_IsMemoryZeroInitializationEnabled = desc.enableMemoryZeroInitialization && ZeroInitializeDeviceMemoryFeatures.zeroInitializeDeviceMemory;
 
-    // Check hard requirements
-    NRI_RETURN_ON_FAILURE(this, features13.synchronization2, Result::UNSUPPORTED, "'synchronization2' is not supported");
+    if (!m_IsSupported.synchronization2)
+        NRI_REPORT_INFO(this, "'synchronization2' is not supported, using legacy barriers and queue submission");
 
     // Check soft requirement
     if (!ExtendedDynamicStateFeatures.extendedDynamicState)
@@ -2464,9 +2473,18 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
     GET_DEVICE_CORE_FUNC(CmdDrawIndexedIndirectCount);
 
     // v1.3 or VK_KHR_synchronization2
-    GET_DEVICE_OPTIONAL_CORE_FUNC(QueueSubmit2);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdPipelineBarrier2);
-    GET_DEVICE_OPTIONAL_CORE_FUNC(CmdWriteTimestamp2);
+    if (m_IsSupported.synchronization2) {
+        m_VK.QueueSubmit2 = (PFN_vkQueueSubmit2)m_VK.GetDeviceProcAddr(m_Device, m_MinorVersion >= 3 ? "vkQueueSubmit2" : "vkQueueSubmit2KHR");
+        m_VK.CmdPipelineBarrier2 = (PFN_vkCmdPipelineBarrier2)m_VK.GetDeviceProcAddr(m_Device, m_MinorVersion >= 3 ? "vkCmdPipelineBarrier2" : "vkCmdPipelineBarrier2KHR");
+        m_VK.CmdWriteTimestamp2 = (PFN_vkCmdWriteTimestamp2)m_VK.GetDeviceProcAddr(m_Device, m_MinorVersion >= 3 ? "vkCmdWriteTimestamp2" : "vkCmdWriteTimestamp2KHR");
+        NRI_RETURN_ON_FAILURE(this, m_VK.QueueSubmit2 && m_VK.CmdPipelineBarrier2 && m_VK.CmdWriteTimestamp2, Result::UNSUPPORTED, "Enabled synchronization2 entry points are unavailable");
+    }
+
+    // These pointers stay null when synchronization2 was not enabled. Accidental
+    // use of a modern command cannot silently work on a feature-masked device.
+    GET_DEVICE_CORE_FUNC(QueueSubmit);
+    GET_DEVICE_CORE_FUNC(CmdPipelineBarrier);
+    GET_DEVICE_CORE_FUNC(CmdWriteTimestamp);
 
     // v1.3 or VK_KHR_copy_commands2
     GET_DEVICE_OPTIONAL_CORE_FUNC(CmdCopyBuffer2);

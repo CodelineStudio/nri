@@ -4,8 +4,10 @@ This independent C++17 fixture tests the actual NRI public Vulkan path without
 GameServer, a window, an asset catalog or a shader compiler. It enumerates/selects
 an adapter, creates a device and graphics queue, uploads a deterministic 4096-byte
 pattern, copies through device memory into readback memory, verifies every byte,
-signals/waits/queries fence values 1 and 2 (including an empty submission and an
-older repeated wait), and waits for idle before teardown. Errors return nonzero.
+also copies the pattern through mip 1 / array layer 1 of a texture, checks GPU
+timestamp ordering, signals/waits/queries fence values 1 through 3 (including
+queued waits, an empty submission and an older repeated wait), and waits for idle
+before teardown. Errors return nonzero.
 Callback messages go to stderr; stdout contains a JSON result.
 
 ## Build and run
@@ -50,8 +52,22 @@ not imply synchronization/GPU-assisted validation settings were enabled.
 
 ## Coverage boundary
 
-This is an initial current-path transfer/fence baseline, not Vulkan 1.1 acceptance.
-It does not force capabilities off, exercise WSI, execute shaders, or prove future waits, fan-out, cross-queue ordering,
+Configure with `-DNRI_COMPATIBILITY_FORCE_LEGACY_SYNC=ON` to disable the actual
+synchronization2 feature before device creation. This control exists only in the
+standalone fixture build. The three synchronization2 dispatch pointers remain
+null; buffer/image barriers, timestamps and queue submission must use the legacy
+commands. Use `--require-legacy-sync` to reject a wrongly configured run. Timeline
+semaphores remain native. Configure OFF and rerun for the modern comparison.
+Build `NRILegacySynchronizationTests` and run CTest for Release-safe scope
+conversion checks, including split stage/access bits and unknown upper bits.
+
+The legacy path merges barrier execution scopes, expands split scopes to their
+legacy equivalents, and uses conservative all-commands / memory-access scopes
+for extension bits with no legacy spelling. Queue signals use the whole legacy
+submission scope. It does not add queue-idle waits.
+
+This is transfer/synchronization qualification, not Vulkan 1.1 acceptance.
+It does not exercise WSI, execute shaders, or prove future waits, fan-out, cross-queue ordering,
 device loss or memory pressure. The manifest records actual NRI-created device
 configuration; it is never inferred from NRI's version or adapter name. Later fixtures must
 cover those cases and real older drivers before claiming compatibility support.

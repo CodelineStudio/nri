@@ -106,6 +106,9 @@ struct DispatchTable {
     VK_FUNC(MapMemory);                                   // - | +
     VK_FUNC(FlushMappedMemoryRanges);                     // + | +
     VK_FUNC(InvalidateMappedMemoryRanges);                // + | +
+    VK_FUNC(QueueSubmit);
+    VK_FUNC(CmdPipelineBarrier);
+    VK_FUNC(CmdWriteTimestamp);
     VK_FUNC(QueueWaitIdle);                               // - | + may return "VK_ERROR_DEVICE_LOST"
     VK_FUNC(ResetCommandPool);                            // - | +
     VK_FUNC(ResetDescriptorPool);                         // - | +
