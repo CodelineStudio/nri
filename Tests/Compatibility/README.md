@@ -757,3 +757,36 @@ GetFenceValue has no result parameter: applications must handle the existing
 error callback and stop normal rendering after device loss. Zero on failure is
 not permission to treat a requested positive fence value as completed, nor a
 guarantee that a lost device can recover without being recreated.
+
+### Bounded allocation load and retained capacity
+
+NRICompatibilityAllocationLoad holds 32 differently sized device buffers across
+committed, explicit raw and explicit VMA allocation routes. Four cycles allocate
+and fully fill/read back every buffer, release odd slots, replace them with a new
+pattern, then recheck every retained even slot before releasing all buffers.
+The fixture performs 192 allocations (64 committed, 68 raw, 60 explicit VMA) and
+256 full-content checks. Every reuse/destruction follows confirmed completion.
+
+Requested live device-buffer payload is at most 320 MiB, capped further at one
+sixteenth of advertised video-memory capacity and one quarter of the initially
+available budget when that query is supported. Unknown capacity uses an 80 MiB
+cap. Two staging buffers add at most 32 MiB of requested payload. Unit size is
+rounded down to 64 KiB; admission fails if even that unit does not fit. This is
+a snapshot-based fixture limit, not a reservation, device requirement or bound
+on VMA native block capacity and driver overhead. No allocations deliberately
+exceed the cap to provoke workstation-wide exhaustion.
+
+At the largest unit, 2 GiB is uploaded and 2.5 GiB is fully verified. The runner
+checks all 22 memory samples, allocation-route counts and byte totals. Standalone
+NRI_COMPATIBILITY_DIAGNOSTICS adds VMA live-allocation/block statistics at budget
+queries, including when the OS budget extension is unavailable. These are
+distinct measurements: unsupported OS budgets remain unsupported, while VMA
+statistics can still prove zero live VMA allocations after cleanup. Empty retained
+allocator blocks must not be confused with leaked live allocations. The available
+driver retains one empty 32 MiB VMA block in the recorded runs; the evidence also
+records the OS budget readings rather than assuming they equal VMA block bytes.
+
+Use --fixture nri_vulkan_allocation_load. Native and extension-free 1.1 runs are
+bounded by the standard process watchdog. This qualifies real allocation churn,
+data preservation and release/reuse at the recorded load; it does not establish
+true memory exhaustion recovery, long-duration memory stability or device loss.

@@ -4696,6 +4696,18 @@ NRI_INLINE FormatSupportBits DeviceVK::GetFormatSupport(Format format) const {
 NRI_INLINE Result DeviceVK::QueryVideoMemoryInfo(MemoryLocation memoryLocation, VideoMemoryInfo& videoMemoryInfo) const {
     videoMemoryInfo = {};
 
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+    // Standalone diagnostics distinguish allocator capacity from live payload.
+    VmaTotalStatistics allocatorStats = {};
+
+    if (m_Vma)
+        vmaCalculateStatistics(m_Vma, &allocatorStats);
+
+    const VmaStatistics& total = allocatorStats.total.statistics;
+    NRI_REPORT_INFO(this, "NRI_VMA_MEMORY {\"blocks\":%u,\"allocations\":%u,\"block_bytes\":%llu,\"allocation_bytes\":%llu}",
+        total.blockCount, total.allocationCount, (unsigned long long)total.blockBytes, (unsigned long long)total.allocationBytes);
+#endif
+
     if (!m_IsSupported.memoryBudget)
         return Result::UNSUPPORTED;
 

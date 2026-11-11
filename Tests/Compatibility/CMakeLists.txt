@@ -163,6 +163,20 @@ target_compile_definitions(NRICompatibilityQueryReset PRIVATE
     NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
     NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
 
+add_executable(NRICompatibilityAllocationLoad allocation_load.cpp)
+target_compile_features(NRICompatibilityAllocationLoad PRIVATE cxx_std_17)
+set_target_properties(NRICompatibilityAllocationLoad PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(NRICompatibilityAllocationLoad PRIVATE NRI)
+target_compile_definitions(NRICompatibilityAllocationLoad PRIVATE
+    NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+    NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+    NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
+if(NOT NRI_STATIC_LIBRARY)
+    add_custom_command(TARGET NRICompatibilityAllocationLoad POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityAllocationLoad>"
+        VERBATIM)
+endif()
+
 add_executable(NRICompatibilityWrappedMemory wrapped_memory.cpp)
 target_compile_features(NRICompatibilityWrappedMemory PRIVATE cxx_std_17)
 set_target_properties(NRICompatibilityWrappedMemory PROPERTIES CXX_EXTENSIONS OFF)

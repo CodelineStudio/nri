@@ -16,7 +16,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
-    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory", "nri_vulkan_inflight_resources", "nri_vulkan_multi_presentation"), default="nri_vulkan_buffer_baseline")
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory", "nri_vulkan_inflight_resources", "nri_vulkan_multi_presentation", "nri_vulkan_allocation_load"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -121,6 +121,39 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.fixture == 'nri_vulkan_allocation_load':
+                    f = receipt['fixture']
+                    expected = {'cycles': 4, 'full_checks': 256, 'committed_allocations': 64, 'raw_allocations': 68, 'vma_allocations': 60, 'budget_samples': 22}
+                    unit = f.get('unit_bytes', 0)
+                    if any(f.get(k) != v for k, v in expected.items()) or type(unit) is not int or not 65536 <= unit <= 4194304 or unit % 65536:
+                        raise ValueError('Allocation-load routes or bounded workload incomplete')
+                    if any(f.get(k) != unit * scale for k, scale in {'peak_live_payload_bytes': 80, 'verified_bytes': 640, 'uploaded_bytes': 512}.items()):
+                        raise ValueError('Allocation-load byte coverage incomplete')
+                    records = [json.loads(line.split('NRI_ALLOCATION_LOAD_MEMORY ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_ALLOCATION_LOAD_MEMORY ' in line]
+                    phases = [(0, 'admission')] + [(cycle, phase) for cycle in range(4) for phase in ('before', 'full', 'holes', 'refilled', 'released')] + [(4, 'cleanup')]
+                    if [(r.get('cycle'), r.get('phase')) for r in records] != phases:
+                        raise ValueError('Allocation-load budget sample sequence incomplete')
+                    for r in records:
+                        if any(type(r.get(k)) is not int or r[k] < 0 for k in ('budget_bytes', 'usage_bytes', 'live_payload_bytes')):
+                            raise ValueError('Invalid memory budget sample')
+                        expected_live = unit * {'full': 80, 'holes': 32, 'refilled': 80}.get(r['phase'], 0)
+                        if r['live_payload_bytes'] != expected_live or r.get('budget_supported') is not f.get('budget_supported'):
+                            raise ValueError('Allocation lifetime or budget capability inconsistent')
+                        if not r['budget_supported'] and (r['budget_bytes'] or r['usage_bytes']):
+                            raise ValueError('Unavailable memory budget must not be presented as measured')
+                    receipt['allocation_load_memory'] = records
+                    stats = [json.loads(line.split('NRI_VMA_MEMORY ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_VMA_MEMORY ' in line]
+                    if len(stats) != len(records):
+                        raise ValueError('Allocator statistics missing')
+                    for r, s in zip(records, stats):
+                        if any(type(s.get(k)) is not int or s[k] < 0 for k in ('blocks', 'allocations', 'block_bytes', 'allocation_bytes')):
+                            raise ValueError('Invalid allocator statistics')
+                        expected_allocations = {'admission': 0, 'before': 2, 'full': 23, 'holes': 13, 'refilled': 23, 'released': 2, 'cleanup': 0}[r['phase']]
+                        if s['allocations'] != expected_allocations or s['allocation_bytes'] > s['block_bytes']:
+                            raise ValueError('Allocator live allocation accounting mismatch')
+                        if not expected_allocations and s['allocation_bytes'] != 0:
+                            raise ValueError('Allocator retains live payload after cleanup')
+                    receipt['allocation_load_vma'] = stats
                 if args.fixture == 'nri_vulkan_multi_presentation':
                     expected = {'submitted_frames': 800, 'exact_frames': 800, 'resize_cycles': 100, 'retained_other_chain': 100, 'max_outstanding_slots': 6, 'slot_reuses': 497, 'queue_idle_checks': 52, 'device_idle_checks': 50}
                     if any(receipt['fixture'].get(k) != v for k, v in expected.items()):
