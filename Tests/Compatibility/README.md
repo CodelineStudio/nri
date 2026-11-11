@@ -379,6 +379,50 @@ atomically with storage bounds and concurrent writer handling. Corrupt payloads
 must never be passed to the driver merely because their header matches.
 One cold/reload pair is correctness evidence, not a performance benchmark.
 
+### Persistent artifact cache qualification
+
+`artifact_cache.py` implements the standalone cache envelope: canonical typed
+compatibility metadata, schema/key/size/SHA-256 checks, bounded reads/storage,
+fsynced temporary files and atomic replacement. A process-owned OS lock serializes
+readers/writers and cold compilation; it is released on process exit. Pending
+files from interrupted writers are reclaimed only while holding that lock.
+Eviction uses access time only, never timestamps or checkout paths in cache keys.
+Managed entries are bounded after publication; temporary publication can require
+one additional bounded entry. Unrelated files are left alone. This simple global
+lock is a qualification policy, not a claim of optimal shipping concurrency.
+
+`cached_shader_inputs.py` keys target results by exact logical source/dependency
+or module hashes, input kind, compiler/runtime/options, entry/stage/profile,
+capabilities, static reflection ABI and validation recipe. It captures the input
+bytes before compilation, so live edits cannot put new source under an old key.
+Cache hits check the envelope, SPIR-V representation/capabilities and expected
+layout without launching the compiler or validator. Cold output runs spirv-val.
+Compiler package changes during compilation are rejected. Busy/unavailable or
+over-capacity caches can return validated uncached output; root initialization
+errors remain caller-visible. Invalid compiler output is never cached as success.
+
+`cached_pipeline_inputs.py` additionally identifies device/driver/native UUID,
+actual enabled device profile, shader hashes and the fixture executable containing
+all pipeline states. It admits driver bytes only after envelope integrity and
+native-header compatibility checks. A shipping engine should serialize its actual
+PSO descriptions rather than using the fixture executable as their identity.
+
+Run `qualify_artifact_cache.py` with the pinned `--driver`, `--validator`, compiled
+`--artifacts`, shader `--sources`, matching `--gpu-exe`, cold `--pipeline-receipt`
+and `--pipeline-data`, plus a fresh `--output` directory. It checks cold/warm text,
+memory and module compilation, relocation, real shared-include edits, corruption,
+semantic admission, busy/full-cache fallback and driver-envelope recovery. Warm
+runs forbid compiler invocation. Metadata mutation checks model invalidation;
+they are not execution evidence for another compiler/GPU/driver. Run the output
+`admitted-pipeline.bin` through the GPU fixture separately. `test_artifact_cache.py`
+also covers interrupted publication, four concurrent cold callers, bounded lock
+timeouts and storage eviction. These paths are qualified on Windows; other OS
+locking/filesystem behavior and power-loss durability remain unverified.
+
+These Python components qualify the persistent format and compiler/NRI contracts.
+They do not replace the consumer's native cache service, shipping shader resolver,
+platform packaging or production renderer. The full migration gate still applies.
+
 This is transfer/synchronization and offscreen attachment qualification, not
 Vulkan 1.1 acceptance.
 The baseline does not exercise WSI, execute shaders, or prove future waits and

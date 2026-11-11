@@ -7,6 +7,17 @@ import struct
 import subprocess
 
 
+COMPILER_FLAGS = ['-target', 'spirv', '-profile', 'spirv_1_3', '-emit-spirv-directly', '-matrix-layout-column-major', '-fvk-use-entrypoint-name', '-O2', '-g0']
+
+CORPUS = (
+    ('compute', 'compute.slang', 'computeMain', 'compute'),
+    ('vertex', 'draw.slang', 'vertexMain', 'vertex'),
+    ('fragment', 'draw.slang', 'fragmentMain', 'fragment'),
+    ('state_vertex', 'graphics_state.slang', 'stateVertexMain', 'vertex'),
+    ('state_fragment', 'graphics_state.slang', 'stateFragmentMain', 'fragment'),
+)
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -19,6 +30,30 @@ def reflection_layout(path):
     for entry in reflected['entryPoints']:
         entry.pop('bindings', None)
     return reflected
+
+
+def validate_spirv(raw):
+    if len(raw) < 20 or len(raw) % 4:
+        raise ValueError('Malformed SPIR-V byte count')
+    words = struct.unpack('<' + 'I' * (len(raw) // 4), raw)
+    if words[:2] != (0x07230203, 0x00010300):
+        raise RuntimeError('Expected SPIR-V 1.3 binary')
+    capabilities = []
+    cursor = 5
+    while cursor < len(words):
+        size, opcode = words[cursor] >> 16, words[cursor] & 0xffff
+        if size == 0 or cursor + size > len(words):
+            raise RuntimeError('Malformed SPIR-V instruction')
+        if opcode == 17:
+            if size != 2:
+                raise ValueError('Malformed SPIR-V capability')
+            capabilities.append(words[cursor + 1])
+        if opcode == 10:
+            raise RuntimeError('Baseline corpus must not declare a SPIR-V extension')
+        cursor += size
+    if not capabilities or set(capabilities) - {0, 1}:
+        raise RuntimeError('Baseline shader requires an unqualified optional capability')
+    return words, capabilities
 
 
 def main():
@@ -44,7 +79,7 @@ def main():
     manifest['sources'] = {p.name: digest(p) for p in sorted((source / 'shaders').glob('*.slang'))}
     manifest['recipe_sha256'] = digest(Path(__file__))
     manifest['toolchain_lock_sha256'] = digest(lock)
-    flags = ['-target', 'spirv', '-profile', 'spirv_1_3', '-emit-spirv-directly', '-matrix-layout-column-major', '-fvk-use-entrypoint-name', '-O2', '-g0']
+    flags = COMPILER_FLAGS
     manifest['compiler_options'] = flags
     input_runs = {}
     if args.input_driver:
@@ -55,14 +90,7 @@ def main():
                 if manifest['input_qualification']['runtime_dlls'].get(runtime) != manifest['tools']['slangc']['runtime_dlls'].get(runtime):
                     raise RuntimeError('API runtime does not match the pinned CLI package: ' + runtime)
     arrays = []
-    corpus = (
-        ('compute', 'compute.slang', 'computeMain', 'compute'),
-        ('vertex', 'draw.slang', 'vertexMain', 'vertex'),
-        ('fragment', 'draw.slang', 'fragmentMain', 'fragment'),
-        ('state_vertex', 'graphics_state.slang', 'stateVertexMain', 'vertex'),
-        ('state_fragment', 'graphics_state.slang', 'stateFragmentMain', 'fragment'),
-    )
-    for name, file, entry, stage in corpus:
+    for name, file, entry, stage in CORPUS:
         binary = output / (name + '.spv')
         reflection = output / (name + '.reflection.json')
         assembly = output / (name + '.spvasm')
@@ -95,22 +123,7 @@ def main():
         subprocess.run([str(args.spirv_val.resolve()), '--target-env', 'vulkan1.1', str(binary)], check=True, timeout=30)
         subprocess.run([str(args.spirv_dis.resolve()), str(binary), '-o', str(assembly)], check=True, timeout=30)
         raw = binary.read_bytes()
-        words = struct.unpack('<' + 'I' * (len(raw) // 4), raw)
-        if words[:2] != (0x07230203, 0x00010300):
-            raise RuntimeError('Expected SPIR-V 1.3 binary')
-        capabilities = []
-        cursor = 5
-        while cursor < len(words):
-            size, opcode = words[cursor] >> 16, words[cursor] & 0xffff
-            if size == 0 or cursor + size > len(words):
-                raise RuntimeError('Malformed SPIR-V instruction')
-            if opcode == 17:
-                capabilities.append(words[cursor + 1])
-            if opcode == 10:
-                raise RuntimeError('Baseline corpus must not declare a SPIR-V extension')
-            cursor += size
-        if not capabilities or set(capabilities) - {0, 1}:
-            raise RuntimeError('Baseline shader requires an unqualified optional capability')
+        words, capabilities = validate_spirv(raw)
         reflected = json.loads(reflection.read_bytes())
         entrypoints = reflected['entryPoints']
         if len(entrypoints) != 1 or entrypoints[0]['name'] != entry or entrypoints[0]['stage'] != stage:
