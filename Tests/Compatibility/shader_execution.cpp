@@ -628,10 +628,10 @@ int main(int argc, char** argv) {
     for (uint32_t cycle = 0; cycle < 8 && passed; cycle++)
         passed = fixture.Execute(cycle);
 
-    uint32_t graphicsCases = 0, maxChannelError = 0;
+    uint32_t graphicsCases = 0, maxChannelError = 0, parameterCases = 0;
 
     if (passed)
-        passed = RunGraphicsStates(*fixture.device, fixture.core, *fixture.queue, fixture.errors, fixture.pipelineCache, graphicsCases, maxChannelError);
+        passed = RunGraphicsStates(*fixture.device, fixture.core, *fixture.queue, fixture.errors, fixture.pipelineCache, graphicsCases, maxChannelError, parameterCases);
 
     if (passed)
         passed = SavePipelineCache(*fixture.device, fixture.core, cacheOutput, fixture.pipelineCache);
@@ -640,7 +640,7 @@ int main(int argc, char** argv) {
     std::printf("NRI_INDIRECT_FEATURES {\"draw_limit\":%u,\"multi_draw_calls\":%u,\"count_draw_calls\":%u,\"split_draw_calls\":%u,\"expected_rejections\":%u}\n", fixture.drawLimit, fixture.multiDrawCalls, fixture.countDrawCalls, fixture.splitDrawCalls, fixture.expectedRejections);
     const auto& cache = fixture.pipelineCache;
     std::printf("NRI_PIPELINE_CACHE {\"loaded_bytes\":%llu,\"saved_bytes\":%llu,\"rejected_headers\":%u,\"cache_control\":%s,\"hit_required\":%s,\"create_ms\":%.3f,\"pipeline_ms\":%.3f}\n", (unsigned long long)cache.loadedBytes, (unsigned long long)cache.savedBytes, cache.rejectedHeaders, cache.control ? "true" : "false", cache.requireHit ? "true" : "false", cache.createMilliseconds, cache.pipelineMilliseconds);
-    int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_shader_execution\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"indirect_cycles\":%u,\"indexed_offset_cases\":%u,\"graphics_state_cases\":%u,\"max_channel_error\":%u,\"legacy_sync_forced\":%s,\"shader_manifest\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.completedCycles, fixture.completedCycles, graphicsCases, graphicsCases, maxChannelError, NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", shader_fixture::manifest);
+    int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_shader_execution\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"indirect_cycles\":%u,\"indexed_offset_cases\":%u,\"graphics_state_cases\":%u,\"draw_parameter_cases\":%u,\"max_channel_error\":%u,\"legacy_sync_forced\":%s,\"shader_manifest\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.completedCycles, fixture.completedCycles, graphicsCases, graphicsCases, parameterCases, maxChannelError, NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", shader_fixture::manifest);
 
     if (written < 0 || std::fflush(stdout) != 0)
         return 3;

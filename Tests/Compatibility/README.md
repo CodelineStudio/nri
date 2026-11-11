@@ -313,7 +313,7 @@ than inferring it from that decoration alone.
 Optionally configure `-DNRI_COMPATIBILITY_SLANG_SDK=<pinned-slang-package>` to
 build `NRICompatibilitySlangInputs` against the package's `slang::slang` CMake
 target (the actual Windows library is `slang-compiler.dll`). The corpus build
-then compares all six entries from the CLI, API disk text, API in-memory text
+then compares all seven entries from the CLI, API disk text, API in-memory text
 and API serialized modules. Every route must produce byte-identical SPIR-V and
 matching static reflection layouts. CLI-only per-entry resource-liveness lists
 are excluded from the JSON comparison; identical target code establishes matching
@@ -433,7 +433,7 @@ cover those cases and real older drivers before claiming compatibility support.
 
 ### Atomic work generation and draw offsets
 
-The shader corpus now contains six entries. `indirect.slang` adds a single
+The shader corpus now contains seven entries. `indirect.slang` adds a single
 32-thread producer workgroup: storage-buffer atomic increments and a device-memory
 group barrier produce dispatch and both draw argument layouts. The consumer
 compute shader never writes the argument buffer while it is consumed. Explicit
@@ -449,11 +449,12 @@ draw-count extensions; supported optional paths are selected as described below.
 The eight graphics-state cases additionally use first index2, first instance1
 and signed base vertex+1/-1 with deliberately different prefix/suffix data. The
 same full-image oracle verifies vertex/instance fetch offsets, sampled textures,
-alpha blending, stencil/depth and MSAA together. This does not qualify shader
-`SV_VertexID`/`SV_InstanceID` or optional DrawParameters builtins. Native and
+alpha blending, stencil/depth and MSAA together. Raw IDs are verified in the baseline; local IDs and optional DrawParameters
+builtins are qualified in a separately admitted variant as described below. Native and
 extension-free Vulkan1.1 runs are required; masked hardware remains distinct
 from genuine older-device acceptance. The shared pipeline cache now contains
-19 pipelines; the API text/memory/module and persistent cache tests derive their
+19 baseline pipelines plus16optional draw-parameter pipelines when supported;
+the API text/memory/module and persistent cache tests derive their
 entry counts from the current corpus.
 
 ### Optional indirect features and effective draw limit
@@ -484,8 +485,7 @@ validation-enabled profile, two deliberate oversized requests produce exactly
 two expected NRI diagnostics and no native Vulkan error. Unexpected errors still
 fail the fixture. Signed indexed offsets and other graphics-state checks remain.
 
-Nonzero indirect firstInstance and shader DrawParameters execution are not yet
-qualified by this baseline. NRI v191 has no separate public indirect-firstInstance
+Nonzero indirect firstInstance is not yet qualified by this baseline. NRI v191 has no separate public indirect-firstInstance
 capability field; consumers must not infer it from shaderFeatures.drawParameters
 or drawIndirectMaxNum. A portable admission contract remains required before the
 production renderer's ordered particle batching can be ported.
@@ -497,3 +497,37 @@ count0 executes nothing. This profile reports4count calls,4ordinary split calls
 and2expected validation rejections. It prevents conflating the independently
 supported count-buffer and ordinary multi-draw commands. NRI's ordinary limit is
 not a restriction on the count-buffer maximum parameter.
+
+### Slang draw-ID semantics and per-entry capability admission
+
+The state vertex shader uses `SV_VulkanVertexID` and `SV_VulkanInstanceID` to
+verify raw Vulkan indices against independently supplied vertex/instance data.
+Indexed cases include first index2, signed base vertex+1/-1 and first instance1.
+Only Matrix/Shader capabilities are admitted for baseline entries. The verifier
+requires actual VertexIndex/InstanceIndex builtins in this shader's binary.
+
+`state_parameters_vertex` shares the geometry/UV helper and adds Slang local
+`SV_VertexID`/`SV_InstanceID`, base vertex/instance and draw index checks. Its
+DrawParameters capability and all five input builtins must appear in the binary.
+Only this named entry admits that optional capability. CPU push data supplies
+the expected signed base vertex; coordinate/instance data independently checks
+local IDs. The tested draw index is0 for individual indexed commands. NRI's
+`shaderFeatures.drawParameters` selects whether8additional graphics cases run;
+unsupported devices create none of those pipelines. The runner verifies this
+against actual enabled feature provenance. No global capability relaxation or
+silent promotion of the baseline's requirements is allowed.
+
+The shared16-byte push layout now names its final int32field `baseVertex` at
+byte12. CLI,API text,memory and serialized-module reflection/binaries must match.
+Cache keys include the entry's allowed capabilities and required device features.
+Fifteen compiler-cache scenarios include replacing a valid baseline envelope's
+binary with the optional binary and the reverse,while preserving checksums and
+expected reflection metadata: both are rejected and only that entry is rebuilt.
+The GPU consumer must still admit required features before pipeline creation;
+a compatible cached optional binary does not itself authorize device execution.
+
+These semantics follow Slang's official SPIR-V target documentation:
+https://docs.shader-slang.org/en/stable/external/slang/docs/user-guide/a2-01-spirv-target-specific.html
+Raw IDs include base offsets. Slang's ordinary HLSL-style IDs subtract them.
+Do not blindly exchange these semantics in an existing shader. This qualification
+covers Vulkan SPIR-V,not DXIL/Metal shader-ID behavior or production shader ports.

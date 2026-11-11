@@ -115,6 +115,9 @@ def main():
                         raise ValueError('Missing indirect feature execution counters')
                     indirect = receipt['indirect_features'] = records[0]
                     device = manifest['device']
+                    parameter_cases = 8 if device.get('shader_draw_parameters') == 1 else 0
+                    if receipt['fixture'].get('draw_parameter_cases') != parameter_cases:
+                        raise ValueError('Draw-parameter capability-selected execution was incomplete')
                     multi = device.get('multi_draw_indirect')
                     count = device['draw_indirect_count']
                     if multi not in (0, 1) or indirect['draw_limit'] < 1 or (multi == 0 and indirect['draw_limit'] != 1):
@@ -130,7 +133,7 @@ def main():
                 if args.require_shader_inputs:
                     inputs = receipt['fixture'].get('shader_manifest', {}).get('input_qualification', {})
                     entries = inputs.get('entries', {})
-                    if args.fixture != 'nri_vulkan_shader_execution' or inputs.get('embedded_input') != 'serialized_module' or set(entries) != {'compute', 'arguments', 'vertex', 'fragment', 'state_vertex', 'state_fragment'}:
+                    if args.fixture != 'nri_vulkan_shader_execution' or inputs.get('embedded_input') != 'serialized_module' or set(entries) != {'compute', 'arguments', 'vertex', 'fragment', 'state_vertex', 'state_parameters_vertex', 'state_fragment'}:
                         raise ValueError('Serialized shader input qualification is absent')
                     for name, entry in entries.items():
                         if entry.get('input_kinds') != ['text', 'memory', 'module'] or (not name.startswith('state_') and entry.get('module_reads', 0) < 1):

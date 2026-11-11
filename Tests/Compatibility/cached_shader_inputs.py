@@ -8,7 +8,7 @@ import subprocess
 import time
 
 from artifact_cache import ArtifactCache, CacheCapacityError, canonical, identity_key
-from compile_shaders import COMPILER_FLAGS, CORPUS, digest, reflection_layout, validate_spirv
+from compile_shaders import COMPILER_FLAGS, CORPUS, capability_profile, digest, reflection_layout, validate_shader
 
 
 def compile_cached(driver, validator, artifacts, sources, output, cache, kind, forbid_compiler=False):
@@ -51,7 +51,7 @@ def compile_cached(driver, validator, artifacts, sources, output, cache, kind, f
         identity = {'kind': 'target_shader', 'input_kind': kind, 'entry': entry, 'stage': stage,
                     'inputs': inputs, 'compiler': manifest['tools']['slangc']['version'],
                     'compiler_driver': producer['driver_sha256'], 'runtime': producer['runtime_dlls'],
-                    'profile': manifest['profile'], 'environment': manifest['target'], 'capabilities': [0, 1],
+                    'profile': manifest['profile'], 'environment': manifest['target'], 'capabilities': list(capability_profile(name)), 'required_device_features': ['shader_draw_parameters'] if name == 'state_parameters_vertex' else [],
                     'options': manifest['compiler_options'], 'defines': {}, 'specialization': {},
                     'reflection_abi': hashlib.sha256(canonical(expected_layout)).hexdigest(),
                     'validator': manifest['tools']['spirv_val']['sha256'], 'recipe_schema': 1,
@@ -60,7 +60,7 @@ def compile_cached(driver, validator, artifacts, sources, output, cache, kind, f
         def decode(payload):
             data = json.loads(payload)
             binary = base64.b64decode(data['spirv'], validate=True)
-            validate_spirv(binary)
+            validate_shader(binary, name)
             if data['reflection'] != expected_layout:
                 raise ValueError('Cached reflection ABI differs')
             return binary, data['reflection']

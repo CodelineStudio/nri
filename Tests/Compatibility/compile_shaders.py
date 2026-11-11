@@ -15,6 +15,7 @@ CORPUS = (
     ('vertex', 'draw.slang', 'vertexMain', 'vertex'),
     ('fragment', 'draw.slang', 'fragmentMain', 'fragment'),
     ('state_vertex', 'graphics_state.slang', 'stateVertexMain', 'vertex'),
+    ('state_parameters_vertex', 'graphics_state.slang', 'stateParametersVertexMain', 'vertex'),
     ('state_fragment', 'graphics_state.slang', 'stateFragmentMain', 'fragment'),
 )
 
@@ -33,7 +34,11 @@ def reflection_layout(path):
     return reflected
 
 
-def validate_spirv(raw):
+def capability_profile(name):
+    return (0, 1, 4427) if name == 'state_parameters_vertex' else (0, 1)
+
+
+def validate_spirv(raw, allowed_capabilities=(0, 1)):
     if len(raw) < 20 or len(raw) % 4:
         raise ValueError('Malformed SPIR-V byte count')
     words = struct.unpack('<' + 'I' * (len(raw) // 4), raw)
@@ -52,9 +57,28 @@ def validate_spirv(raw):
         if opcode == 10:
             raise RuntimeError('Baseline corpus must not declare a SPIR-V extension')
         cursor += size
-    if not capabilities or set(capabilities) - {0, 1}:
+    if not capabilities or set(capabilities) - set(allowed_capabilities):
         raise RuntimeError('Baseline shader requires an unqualified optional capability')
     return words, capabilities
+
+
+def validate_shader(raw, name):
+    words, capabilities = validate_spirv(raw, capability_profile(name))
+    builtins = set()
+    cursor = 5
+    while cursor < len(words):
+        size, opcode = words[cursor] >> 16, words[cursor] & 0xffff
+        if opcode == 71 and size >= 4 and words[cursor + 2] == 11:
+            builtins.add(words[cursor + 3])
+        cursor += size
+    required = {42, 43} if name == 'state_vertex' else set()
+    if name == 'state_parameters_vertex':
+        required = {42, 43, 4424, 4425, 4426}
+        if 4427 not in capabilities:
+            raise RuntimeError('Optional draw-parameter entry lost its required capability')
+    if not required.issubset(builtins):
+        raise RuntimeError('Draw-ID shader lost a required builtin')
+    return words, capabilities, sorted(builtins)
 
 
 def main():
@@ -124,7 +148,7 @@ def main():
         subprocess.run([str(args.spirv_val.resolve()), '--target-env', 'vulkan1.1', str(binary)], check=True, timeout=30)
         subprocess.run([str(args.spirv_dis.resolve()), str(binary), '-o', str(assembly)], check=True, timeout=30)
         raw = binary.read_bytes()
-        words, capabilities = validate_spirv(raw)
+        words, capabilities, builtins = validate_shader(raw, name)
         reflected = json.loads(reflection.read_bytes())
         entrypoints = reflected['entryPoints']
         if len(entrypoints) != 1 or entrypoints[0]['name'] != entry or entrypoints[0]['stage'] != stage:
@@ -141,7 +165,7 @@ def main():
             raise RuntimeError('Unexpected parameter binding')
         fields = uniform['type']['elementType']['fields']
         offsets = {item['name']: (item['binding']['offset'], item['binding']['size']) for item in fields}
-        expected = {'depth': (0, 4), 'opacity': (4, 4), 'flags': (8, 4), 'padding': (12, 4)} if state else {'count': (0, 4), 'multiplier': (4, 4), 'bias': (8, 4), 'nonce': (12, 4), 'transform': (16, 64)}
+        expected = {'depth': (0, 4), 'opacity': (4, 4), 'flags': (8, 4), 'baseVertex': (12, 4)} if state else {'count': (0, 4), 'multiplier': (4, 4), 'bias': (8, 4), 'nonce': (12, 4), 'transform': (16, 64)}
         if offsets != expected:
             raise RuntimeError('CPU/uniform layout mismatch')
         resources = {'image': 0, 'imageSampler': 1} if state else ({'arguments': 2} if name == 'arguments' else {'results': 1})
@@ -149,9 +173,9 @@ def main():
             for resource, binding in resources.items():
                 if parameters[resource]['binding']['index'] != binding or parameters[resource]['binding'].get('space', 0) != 0:
                     raise RuntimeError('Unexpected resource binding')
-        if state and stage == 'vertex' and [item['binding']['index'] for item in entrypoints[0]['parameters']] != [0, 1, 2]:
+        if state and stage == 'vertex' and [item['binding']['index'] for item in entrypoints[0]['parameters'] if item.get('binding', {}).get('kind') == 'varyingInput'] != [0, 1, 2]:
             raise RuntimeError('Unexpected vertex/instance input locations')
-        manifest['shaders'][name] = {'entry': entry, 'stage': stage, 'binary_sha256': digest(binary), 'reflection_sha256': digest(reflection), 'capabilities': capabilities, 'uniform_offsets': offsets, 'byte_count': len(raw)}
+        manifest['shaders'][name] = {'entry': entry, 'stage': stage, 'binary_sha256': digest(binary), 'reflection_sha256': digest(reflection), 'capabilities': capabilities, 'builtin_ids': builtins, 'required_device_features': ['shader_draw_parameters'] if name == 'state_parameters_vertex' else [], 'uniform_offsets': offsets, 'byte_count': len(raw)}
         arrays.append('inline constexpr uint32_t ' + name + '[] = {' + ','.join(hex(word) for word in words) + '};')
     encoded = json.dumps(manifest, sort_keys=True, separators=(',', ':'))
     if args.input_driver:
@@ -161,7 +185,7 @@ def main():
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     header = '#pragma once\n#include <cstdint>\nnamespace shader_fixture {\n' + '\n'.join(arrays) + '\ninline constexpr char manifest[] = R"manifest(' + encoded + ')manifest";\n}\n'
     (output / 'compiled_shaders.h').write_text(header, encoding='utf-8')
-    print(f'Compiled and validated {len(CORPUS)} SPIR-V1.3 shaders; parameter offsets and baseline capabilities verified.')
+    print(f'Compiled and validated {len(CORPUS)} SPIR-V1.3 shaders; parameter offsets and per-entry capabilities verified.')
 
 
 if __name__ == '__main__':

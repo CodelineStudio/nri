@@ -1,5 +1,6 @@
 """Exercise real compiler cache hits/invalidation and admitted driver payloads."""
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -8,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from artifact_cache import ArtifactCache, identity_key
+from artifact_cache import ArtifactCache, canonical, identity_key
 from cached_pipeline_inputs import admit_pipeline, verified_pipeline_source
 from cached_shader_inputs import compile_cached
 from compile_shaders import CORPUS
@@ -50,7 +51,7 @@ def main():
     shared.write_bytes(original.replace(b'0x85ebca6bu', b'0x85ebca6du'))
     changed = compile_run('include-changed', 'text', sum(file != 'graphics_state.slang' for _, file, _, _ in CORPUS))
     assert changed['entries']['compute']['binary_sha256'] != runs['text-cold']['entries']['compute']['binary_sha256']
-    assert changed['entries']['state_vertex']['status'] == changed['entries']['state_fragment']['status'] == 'hit'
+    assert all(changed['entries'][name]['status'] == 'hit' for name, file, _, _ in CORPUS if file == 'graphics_state.slang')
     shared.write_bytes(original)
     compile_run('include-restored', 'text', 0, forbid=True)
 
@@ -64,6 +65,17 @@ def main():
     cache.put(target_identity, b'{"spirv":"AA==","reflection":{}}')
     recovered = compile_run('target-invalid-format-repaired', 'text', 1)
     assert recovered['entries']['compute']['status'] == 'rebuilt_invalid_payload'
+
+    # A checksum-valid payload must still obey its entry's capability contract.
+    for target, replacement in [('state_vertex', 'state_parameters_vertex'), ('state_parameters_vertex', 'state_vertex')]:
+        identity = runs['text-cold']['entries'][target]['identity']
+        current, _ = cache.get(identity)
+        data = json.loads(current)
+        data['spirv'] = base64.b64encode((args.artifacts / (replacement + '.spv')).read_bytes()).decode('ascii')
+        cache.put(identity, canonical(data))
+        repaired = compile_run(target + '-capability-repaired', 'text', 1)
+        assert repaired['entries'][target]['status'] == 'rebuilt_invalid_payload'
+        assert repaired['entries'][target]['binary_sha256'] == runs['text-cold']['entries'][target]['binary_sha256']
 
     bounded = ArtifactCache(output / 'tiny-cache', max_entry_bytes=1)
     uncached = compile_cached(args.driver, args.validator, args.artifacts, copied_sources, output / 'capacity-fallback', bounded, 'text')

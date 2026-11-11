@@ -14,7 +14,8 @@ namespace {
 
 struct DrawParameters {
     float depth, opacity;
-    uint32_t flags, padding;
+    uint32_t flags;
+    int32_t baseVertex;
 };
 static_assert(sizeof(DrawParameters) == 16, "Push constant ABI");
 
@@ -44,7 +45,7 @@ struct StateCase {
     nri::Queue& queue;
     PipelineCacheRun& cache;
     uint8_t samples;
-    bool linear, premultiplied;
+    bool linear, premultiplied, drawParameters;
     nri::CommandAllocator* allocator = nullptr;
     nri::CommandBuffer* command = nullptr;
     nri::Fence* fence = nullptr;
@@ -220,7 +221,7 @@ struct StateCase {
         multisample.sampleNum = samples;
         multisample.sampleMask = nri::ALL;
         nri::ShaderDesc shaders[] = {
-            {nri::StageBits::VERTEX_SHADER, shader_fixture::state_vertex, sizeof(shader_fixture::state_vertex), "stateVertexMain"},
+            {nri::StageBits::VERTEX_SHADER, drawParameters ? shader_fixture::state_parameters_vertex : shader_fixture::state_vertex, drawParameters ? sizeof(shader_fixture::state_parameters_vertex) : sizeof(shader_fixture::state_vertex), drawParameters ? "stateParametersVertexMain" : "stateVertexMain"},
             {nri::StageBits::FRAGMENT_SHADER, shader_fixture::state_fragment, sizeof(shader_fixture::state_fragment), "stateFragmentMain"}
         };
 
@@ -263,7 +264,7 @@ struct StateCase {
     }
 
     void Draw(float depth, float opacity, uint32_t flags, uint8_t stencil) {
-        DrawParameters parameters = {depth, opacity, flags, 0};
+        DrawParameters parameters = {depth, opacity, flags, premultiplied ? -1 : 1};
         nri::SetRootConstantsDesc constants = {};
         constants.data = &parameters;
         constants.size = sizeof(parameters);
@@ -470,16 +471,21 @@ struct StateCase {
 
 } // namespace
 
-bool RunGraphicsStates(nri::Device& device, const nri::CoreInterface& core, nri::Queue& queue, const std::atomic<uint32_t>& errors, PipelineCacheRun& cache, uint32_t& completedCases, uint32_t& maxChannelError) {
-    for (uint32_t i = 0; i < 8; i++) {
-        StateCase state{device, core, queue, cache, uint8_t((i & 4) ? 4 : 1), (i & 2) != 0, (i & 1) != 0};
+bool RunGraphicsStates(nri::Device& device, const nri::CoreInterface& core, nri::Queue& queue, const std::atomic<uint32_t>& errors, PipelineCacheRun& cache, uint32_t& completedCases, uint32_t& maxChannelError, uint32_t& parameterCases) {
+    uint32_t caseNum = core.GetDeviceDesc(device).shaderFeatures.drawParameters ? 16 : 8;
+
+    for (uint32_t i = 0; i < caseNum; i++) {
+        StateCase state{device, core, queue, cache, uint8_t((i & 4) ? 4 : 1), (i & 2) != 0, (i & 1) != 0, i >= 8};
         bool passed = state.Initialize() && state.Execute(maxChannelError);
         passed = state.Cleanup() && passed && errors.load() == 0;
 
         if (!passed)
             return false;
 
-        completedCases++;
+        if (i >= 8)
+            parameterCases++;
+        else
+            completedCases++;
     }
 
     return true;
