@@ -313,7 +313,7 @@ than inferring it from that decoration alone.
 Optionally configure `-DNRI_COMPATIBILITY_SLANG_SDK=<pinned-slang-package>` to
 build `NRICompatibilitySlangInputs` against the package's `slang::slang` CMake
 target (the actual Windows library is `slang-compiler.dll`). The corpus build
-then compares all five entries from the CLI, API disk text, API in-memory text
+then compares all six entries from the CLI, API disk text, API in-memory text
 and API serialized modules. Every route must produce byte-identical SPIR-V and
 matching static reflection layouts. CLI-only per-entry resource-liveness lists
 are excluded from the JSON comparison; identical target code establishes matching
@@ -438,12 +438,13 @@ The shader corpus now contains six entries. `indirect.slang` adds a single
 group barrier produce dispatch and both draw argument layouts. The consumer
 compute shader never writes the argument buffer while it is consumed. Explicit
 copy-to-storage, storage-to-indirect and indirect-to-readback barriers separate
-these uses. Each of eight cycles validates all 24 words, including untouched
+these uses. Each of eight cycles validates all 64 words, including untouched
 sentinels and a changing shared-module result, then checks the existing compute
-records and every output pixel. Dispatch arguments start at byte16; alternating
+records and every output pixel. Dispatch arguments start at byte16; single
 nonindexed/indexed draws use byte32/64, first vertex1 and indexed first index2.
-Indirect first instance stays zero, and each call submits one draw: this baseline
-does not require `drawIndirectFirstInstance`, multi-draw or draw-count extensions.
+Grouped commands start at byte96/160. Indirect first instance stays zero. The
+single-draw fallback requires neither `drawIndirectFirstInstance`, multi-draw nor
+draw-count extensions; supported optional paths are selected as described below.
 
 The eight graphics-state cases additionally use first index2, first instance1
 and signed base vertex+1/-1 with deliberately different prefix/suffix data. The
@@ -454,3 +455,45 @@ extension-free Vulkan1.1 runs are required; masked hardware remains distinct
 from genuine older-device acceptance. The shared pipeline cache now contains
 19 pipelines; the API text/memory/module and persistent cache tests derive their
 entry counts from the current corpus.
+
+### Optional indirect features and effective draw limit
+
+`other.drawIndirectMaxNum` is now1 when Vulkan `multiDrawIndirect` is disabled;
+otherwise it retains the hardware limit. Validation rejects excessive `drawNum`
+for both indexed and nonindexed ordinary indirect calls before backend dispatch.
+Count-buffer commands are independently supported and do not use that ordinary
+multi-draw limit; Vulkan bounds the GPU count by its physical limit instead. Public
+API/ABI is unchanged. NRI does not silently split multi-draw commands: doing so
+would change draw-ID semantics. Callers choose an appropriate supported path.
+
+`NRI_COMPATIBILITY_NO_INDIRECT_OPTIONALS=ON` disables actual device creation bits
+for multi-draw, indirect first instance and shader draw parameters, in either
+aggregate or individual feature chains. `--require-no-indirect-optionals` checks
+the observed manifest. Together with the extension-free profile this verifies
+that the existing baseline does not accidentally rely on those optional features.
+
+The shader fixture expands to64argument words and deliberately different third
+commands. Cycles0/1 retain single indirect draws;2/3 draw the two triangles through
+native multi-draw when admitted, otherwise two explicit single draws. Cycles4/5
+use GPU count2 with maximum3 where supported;6/7 use GPU count0. The third command
+would paint pixels outside the expected geometry if the count were ignored.
+Without count support the fixture uses its known two-draw/empty scenario; this
+is not a general GPU count emulation. All argument words and output pixels are
+checked. Feature-selected path counters are enforced by the runner. On a limit1
+validation-enabled profile, two deliberate oversized requests produce exactly
+two expected NRI diagnostics and no native Vulkan error. Unexpected errors still
+fail the fixture. Signed indexed offsets and other graphics-state checks remain.
+
+Nonzero indirect firstInstance and shader DrawParameters execution are not yet
+qualified by this baseline. NRI v191 has no separate public indirect-firstInstance
+capability field; consumers must not infer it from shaderFeatures.drawParameters
+or drawIndirectMaxNum. A portable admission contract remains required before the
+production renderer's ordered particle batching can be ported.
+
+The modern masked profile keeps drawIndirectCount enabled while disabling
+multiDrawIndirect. Count-buffer calls with maximum3 remain supported even though
+the ordinary indirect limit is1. GPU count2 selects the two valid triangles and
+count0 executes nothing. This profile reports4count calls,4ordinary split calls
+and2expected validation rejections. It prevents conflating the independently
+supported count-buffer and ordinary multi-draw commands. NRI's ordinary limit is
+not a restriction on the count-buffer maximum parameter.

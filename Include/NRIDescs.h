@@ -2221,7 +2221,7 @@ NriStruct(DeviceDesc) {
     // Other
     struct {
         uint64_t timestampFrequencyHz;
-        uint32_t drawIndirectMaxNum;
+        uint32_t drawIndirectMaxNum;                 // maximum drawNum without countBuffer; VK: 1 if multiDrawIndirect is unavailable
         float samplerLodBiasMax;
         float samplerAnisotropyMax;
         int8_t texelGatherOffsetMin;

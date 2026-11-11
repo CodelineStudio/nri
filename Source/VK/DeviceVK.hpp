@@ -1257,6 +1257,14 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     Synchronization2Features.synchronization2 = VK_FALSE;
 #endif
 
+#if NRI_COMPATIBILITY_NO_INDIRECT_OPTIONALS
+    NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "No-indirect-optionals fixture requires an NRI-owned device");
+    features.features.multiDrawIndirect = VK_FALSE;
+    features.features.drawIndirectFirstInstance = VK_FALSE;
+    features11.shaderDrawParameters = VK_FALSE;
+    individualShaderDrawParametersFeatures.shaderDrawParameters = VK_FALSE;
+#endif
+
 #if NRI_COMPATIBILITY_NO_TIMELINE
     NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "No-timeline fixture requires an NRI-owned device");
     features12.timelineSemaphore = VK_FALSE;
@@ -1419,8 +1427,8 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 #if NRI_COMPATIBILITY_DIAGNOSTICS
             VkPhysicalDeviceProperties2 observedProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
             m_VK.GetPhysicalDeviceProperties2(m_PhysicalDevice, &observedProperties);
-            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device\",\"physical_api\":%u,\"effective_minor\":%u,\"timeline\":%u,\"host_query_reset\":%u,\"synchronization2\":%u,\"dynamic_rendering\":%u,\"device_address\":%u,\"descriptor_indexing\":%u,\"draw_indirect_count\":%u,\"format_feature_flags2\":%u,\"extension_count\":%u}",
-                observedProperties.properties.apiVersion, m_MinorVersion, features12.timelineSemaphore, features12.hostQueryReset, features13.synchronization2, features13.dynamicRendering, m_IsSupported.deviceAddress, m_IsSupported.descriptorIndexing, m_IsSupported.drawIndirectCount, m_IsSupported.formatFeatureFlags2, deviceCreateInfo.enabledExtensionCount);
+            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device\",\"physical_api\":%u,\"effective_minor\":%u,\"timeline\":%u,\"host_query_reset\":%u,\"synchronization2\":%u,\"dynamic_rendering\":%u,\"device_address\":%u,\"descriptor_indexing\":%u,\"draw_indirect_count\":%u,\"multi_draw_indirect\":%u,\"draw_indirect_first_instance\":%u,\"shader_draw_parameters\":%u,\"format_feature_flags2\":%u,\"extension_count\":%u}",
+                observedProperties.properties.apiVersion, m_MinorVersion, features12.timelineSemaphore, features12.hostQueryReset, features13.synchronization2, features13.dynamicRendering, m_IsSupported.deviceAddress, m_IsSupported.descriptorIndexing, m_IsSupported.drawIndirectCount, features.features.multiDrawIndirect, features.features.drawIndirectFirstInstance, features11.shaderDrawParameters, m_IsSupported.formatFeatureFlags2, deviceCreateInfo.enabledExtensionCount);
 
             for (const char* extension : desiredDeviceExts)
                 NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device_extension\",\"name\":\"%s\"}", extension);
@@ -2011,7 +2019,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             m_Desc.wave.waveOpsStages |= StageBits::MESH_SHADER;
 
         m_Desc.other.timestampFrequencyHz = uint64_t(1e9 / double(limits.timestampPeriod) + 0.5);
-        m_Desc.other.drawIndirectMaxNum = limits.maxDrawIndirectCount;
+        m_Desc.other.drawIndirectMaxNum = features.features.multiDrawIndirect ? limits.maxDrawIndirectCount : 1;
         m_Desc.other.samplerLodBiasMax = limits.maxSamplerLodBias;
 
 #ifdef __APPLE__

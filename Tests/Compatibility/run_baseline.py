@@ -23,6 +23,7 @@ def main():
     parser.add_argument("--validation", action="store_true")
     parser.add_argument("--require-native-validation", action="store_true")
     parser.add_argument("--require-legacy-sync", action="store_true")
+    parser.add_argument("--require-no-indirect-optionals", action="store_true")
     parser.add_argument("--require-no-timeline", action="store_true")
     parser.add_argument("--require-no-host-reset", action="store_true")
     parser.add_argument("--require-legacy-wsi", action="store_true")
@@ -108,6 +109,24 @@ def main():
                                 raise ValueError('Cache artifact size differs from native receipt')
                             size, version, vendor, device = struct.unpack_from('<4I', data)
                             cache[label] = {'sha256': hashlib.sha256(data).hexdigest(), 'header_size': size, 'header_version': version, 'vendor_id': vendor, 'device_id': device, 'pipeline_cache_uuid': data[16:32].hex()}
+                if args.fixture == 'nri_vulkan_shader_execution':
+                    records = [json.loads(line.split('NRI_INDIRECT_FEATURES ', 1)[1]) for line in stdout.decode('utf-8').splitlines() if line.startswith('NRI_INDIRECT_FEATURES ')]
+                    if len(records) != 1:
+                        raise ValueError('Missing indirect feature execution counters')
+                    indirect = receipt['indirect_features'] = records[0]
+                    device = manifest['device']
+                    multi = device.get('multi_draw_indirect')
+                    count = device['draw_indirect_count']
+                    if multi not in (0, 1) or indirect['draw_limit'] < 1 or (multi == 0 and indirect['draw_limit'] != 1):
+                        raise ValueError('Indirect draw limit does not match enabled native feature')
+                    count_calls = 4 if count else 0
+                    expected = (2 if count else 4, count_calls, 0, 0) if indirect['draw_limit'] >= 2 else (0, count_calls, 4 if count else 8, 2 if args.validation or args.require_native_validation else 0)
+                    actual = tuple(indirect[k] for k in ('multi_draw_calls', 'count_draw_calls', 'split_draw_calls', 'expected_rejections'))
+                    if actual != expected:
+                        raise ValueError('Indirect capability-selected execution was incomplete')
+                if args.require_no_indirect_optionals:
+                    if any(manifest['device'].get(k) != 0 for k in ('multi_draw_indirect', 'draw_indirect_first_instance', 'shader_draw_parameters')):
+                        raise ValueError('Indirect optional features were not disabled before device creation')
                 if args.require_shader_inputs:
                     inputs = receipt['fixture'].get('shader_manifest', {}).get('input_qualification', {})
                     entries = inputs.get('entries', {})

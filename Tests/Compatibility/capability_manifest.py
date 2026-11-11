@@ -33,10 +33,11 @@ def parse_manifest(stderr):
     for key in ('timeline', 'synchronization2', 'dynamic_rendering'):
         if type(result['device'].get(key)) is not int or result['device'][key] not in (0, 1):
             raise ValueError(f'Invalid enabled {key} feature')
-    if 'host_query_reset' in result['device']:
-        value = result['device']['host_query_reset']
-        if type(value) is not int or value not in (0, 1):
-            raise ValueError('Invalid enabled host_query_reset feature')
+    for key in ('host_query_reset', 'multi_draw_indirect', 'draw_indirect_first_instance', 'shader_draw_parameters'):
+        if key in result['device']:
+            value = result['device'][key]
+            if type(value) is not int or value not in (0, 1):
+                raise ValueError('Invalid enabled ' + key + ' feature')
     # Added chain records are optional for historical receipts. Strict profile
     # checks below require them for new individual-structure qualification.
     for kind in ('feature', 'property'):

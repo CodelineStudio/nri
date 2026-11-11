@@ -1032,6 +1032,7 @@ NRI_INLINE void CommandBufferVal::DrawIndirect(const Buffer& buffer, uint64_t of
     NRI_RETURN_ON_FAILURE(&m_Device, m_IsRenderPass, ReturnVoid(), "must be called inside 'CmdBeginRendering/CmdEndRendering'");
     NRI_RETURN_ON_FAILURE(&m_Device, m_PipelineLayout, ReturnVoid(), "'SetPipelineLayout' has not been called");
     NRI_RETURN_ON_FAILURE(&m_Device, !countBuffer || deviceDesc.features.drawIndirectCount, ReturnVoid(), "'countBuffer' is not supported");
+    NRI_RETURN_ON_FAILURE(&m_Device, countBuffer || drawNum <= deviceDesc.other.drawIndirectMaxNum, ReturnVoid(), "'drawNum' exceeds 'other.drawIndirectMaxNum'");
 
     const PipelineLayoutDesc& pipelineLayoutDesc = m_PipelineLayout->GetPipelineLayoutDesc();
     bool enableDrawParametersEmulation = IsDrawParametersEmulationEnabled(deviceDesc.graphicsAPI, pipelineLayoutDesc);
@@ -1052,6 +1053,7 @@ NRI_INLINE void CommandBufferVal::DrawIndexedIndirect(const Buffer& buffer, uint
     NRI_RETURN_ON_FAILURE(&m_Device, m_IsRenderPass, ReturnVoid(), "must be called inside 'CmdBeginRendering/CmdEndRendering'");
     NRI_RETURN_ON_FAILURE(&m_Device, m_PipelineLayout, ReturnVoid(), "'SetPipelineLayout' has not been called");
     NRI_RETURN_ON_FAILURE(&m_Device, !countBuffer || deviceDesc.features.drawIndirectCount, ReturnVoid(), "'countBuffer' is not supported");
+    NRI_RETURN_ON_FAILURE(&m_Device, countBuffer || drawNum <= deviceDesc.other.drawIndirectMaxNum, ReturnVoid(), "'drawNum' exceeds 'other.drawIndirectMaxNum'");
 
     const PipelineLayoutDesc& pipelineLayoutDesc = m_PipelineLayout->GetPipelineLayoutDesc();
     bool enableDrawParametersEmulation = IsDrawParametersEmulationEnabled(deviceDesc.graphicsAPI, pipelineLayoutDesc);

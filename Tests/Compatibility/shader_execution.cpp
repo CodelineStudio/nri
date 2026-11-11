@@ -53,12 +53,17 @@ struct Fixture {
     std::array<nri::Buffer*, 9> buffers{};
     uint32_t rowPitch = 0, slicePitch = 0;
     uint32_t completedCycles = 0, deviceId = 0, driver = 0;
-    bool ready = false;
+    bool ready = false, validationEnabled = false, expectDrawLimitError = false;
+    uint32_t expectedRejections = 0, multiDrawCalls = 0, countDrawCalls = 0, splitDrawCalls = 0;
+    uint32_t drawLimit = 0;
+    bool drawCountSupported = false;
 
     static void NRI_CALL Message(nri::Message severity, const char* file, uint32_t line, const char* text, void* user) {
         auto& fixture = *(Fixture*)user;
 
-        if (severity == nri::Message::ERROR)
+        if (severity == nri::Message::ERROR && fixture.expectDrawLimitError && text && std::strstr(text, "'drawNum' exceeds 'other.drawIndirectMaxNum'"))
+            fixture.expectedRejections++;
+        else if (severity == nri::Message::ERROR)
             fixture.errors++;
         else if (severity == nri::Message::WARNING)
             fixture.warnings++;
@@ -98,7 +103,10 @@ struct Fixture {
             return false;
 
         ready = true;
+        validationEnabled = validation;
         const auto& desc = core.GetDeviceDesc(*device);
+        drawLimit = desc.other.drawIndirectMaxNum;
+        drawCountSupported = desc.features.drawIndirectCount;
         deviceId = desc.adapterDesc.deviceId;
         driver = desc.adapterDesc.driverVersion;
 
@@ -113,7 +121,7 @@ struct Fixture {
 
         rowPitch = ((256 + desc.memoryAlignment.uploadBufferTextureRow - 1) / desc.memoryAlignment.uploadBufferTextureRow) * desc.memoryAlignment.uploadBufferTextureRow;
         slicePitch = ((rowPitch * 64 + desc.memoryAlignment.uploadBufferTextureSlice - 1) / desc.memoryAlignment.uploadBufferTextureSlice) * desc.memoryAlignment.uploadBufferTextureSlice;
-        const uint64_t sizes[] = {sizeof(Parameters), 64 * 16, 64 * 16, slicePitch, 7 * 2 * sizeof(float), 96, 96, 96, 8 * sizeof(uint16_t)};
+        const uint64_t sizes[] = {sizeof(Parameters), 64 * 16, 64 * 16, slicePitch, 13 * 2 * sizeof(float), 256, 256, 256, 14 * sizeof(uint16_t)};
 
         for (uint32_t i = 0; i < buffers.size(); i++) {
             nri::BufferDesc buffer = {};
@@ -138,7 +146,7 @@ struct Fixture {
                 return false;
         }
 
-        const float vertices[] = {9, 9, -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1};
+        const float vertices[] = {9, 9, -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1, 1, -1, 3, -1, 1, 1, 1, 1, 3, -1, 3, 1};
         void* mapped = core.MapBuffer(*buffers[4], 0, sizeof(vertices));
 
         if (!Check(mapped != nullptr, "vertex upload"))
@@ -146,7 +154,7 @@ struct Fixture {
 
         std::memcpy(mapped, vertices, sizeof(vertices));
         core.UnmapBuffer(*buffers[4]);
-        const uint16_t indices[] = {0, 0, 0, 1, 2, 3, 4, 5};
+        const uint16_t indices[] = {0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
         mapped = core.MapBuffer(*buffers[8], 0, sizeof(indices));
 
         if (!Check(mapped != nullptr, "index upload"))
@@ -278,7 +286,7 @@ struct Fixture {
 
         std::memcpy(mapped, &parameters, sizeof(parameters));
         core.UnmapBuffer(*buffers[0]);
-        std::array<uint32_t, 24> expectedArguments;
+        std::array<uint32_t, 64> expectedArguments;
         expectedArguments.fill(0xdeadbeefu);
         expectedArguments[0] = 0;
         mapped = core.MapBuffer(*buffers[6], 0, sizeof(expectedArguments));
@@ -289,6 +297,7 @@ struct Fixture {
         std::memcpy(mapped, expectedArguments.data(), sizeof(expectedArguments));
         core.UnmapBuffer(*buffers[6]);
         expectedArguments[0] = 32;
+        expectedArguments[1] = cycle >= 6 ? 0 : 2;
         expectedArguments[3] = ExpectedValue(0, parameters);
         expectedArguments[4] = 2;
         expectedArguments[5] = expectedArguments[6] = 1;
@@ -300,6 +309,13 @@ struct Fixture {
         expectedArguments[18] = 2;
         expectedArguments[19] = 1;
         expectedArguments[20] = 0;
+
+        for (uint32_t i = 0; i < 3; i++) {
+            const uint32_t nonindexed[] = {i == 2 ? 6u : 3u, 1, 1 + i * 3, 0};
+            const uint32_t indexed[] = {i == 2 ? 6u : 3u, 1, 2 + i * 3, 1, 0};
+            std::memcpy(expectedArguments.data() + 24 + i * 4, nonindexed, sizeof(nonindexed));
+            std::memcpy(expectedArguments.data() + 40 + i * 5, indexed, sizeof(indexed));
+        }
         core.ResetCommandAllocator(*allocator);
 
         if (!Check(core.BeginCommandBuffer(*command, pool) == nri::Result::SUCCESS, "begin commands"))
@@ -374,11 +390,41 @@ struct Fixture {
         rendering.colorNum = 1;
         core.CmdBeginRendering(*command, rendering);
 
-        if (cycle % 2) {
-            core.CmdSetIndexBuffer(*command, *buffers[8], 0, nri::IndexType::UINT16);
-            core.CmdDrawIndexedIndirect(*command, *buffers[5], 64, 1, sizeof(nri::DrawIndexedDesc), nullptr, 0);
-        } else
-            core.CmdDrawIndirect(*command, *buffers[5], 32, 1, sizeof(nri::DrawDesc), nullptr, 0);
+        core.CmdSetIndexBuffer(*command, *buffers[8], 0, nri::IndexType::UINT16);
+
+        // Both rejected commands must stop at NRI validation, before Vulkan.
+        if (cycle == 0 && drawLimit == 1 && validationEnabled) {
+            expectDrawLimitError = true;
+            core.CmdDrawIndirect(*command, *buffers[5], 96, 2, sizeof(nri::DrawDesc), nullptr, 0);
+            core.CmdDrawIndexedIndirect(*command, *buffers[5], 160, 2, sizeof(nri::DrawIndexedDesc), nullptr, 0);
+            expectDrawLimitError = false;
+        }
+
+        auto draw = [&](uint64_t offset, uint32_t count, nri::Buffer* countBuffer) {
+            if (cycle % 2)
+                core.CmdDrawIndexedIndirect(*command, *buffers[5], offset, count, sizeof(nri::DrawIndexedDesc), countBuffer, 4);
+            else
+                core.CmdDrawIndirect(*command, *buffers[5], offset, count, sizeof(nri::DrawDesc), countBuffer, 4);
+        };
+
+        if (cycle < 2)
+            draw(cycle % 2 ? 64 : 32, 1, nullptr);
+        else if (cycle >= 4 && drawCountSupported) {
+            // Count-buffer draws are independent of multiDrawIndirect. The third
+            // command paints an unexpected region if the GPU count is ignored.
+            draw(cycle % 2 ? 160 : 96, 3, buffers[5]);
+            countDrawCalls++;
+        } else if (cycle < 6) {
+            if (drawLimit >= 2) {
+                draw(cycle % 2 ? 160 : 96, 2, nullptr);
+                multiDrawCalls++;
+            } else {
+                uint64_t offset = cycle % 2 ? 160 : 96;
+                draw(offset, 1, nullptr);
+                draw(offset + (cycle % 2 ? sizeof(nri::DrawIndexedDesc) : sizeof(nri::DrawDesc)), 1, nullptr);
+                splitDrawCalls += 2;
+            }
+        }
         core.CmdEndRendering(*command);
         storage.before = storage.after;
         storage.after = {nri::AccessBits::COPY_SOURCE, nri::StageBits::COPY};
@@ -461,7 +507,7 @@ struct Fixture {
             for (uint32_t x = 0; x < 64; x++) {
                 std::array<uint8_t, 4> expected{};
 
-                if (x >= 32 && x < 56 && y >= 24 && y < 48) {
+                if (cycle < 6 && x >= 32 && x < 56 && y >= 24 && y < 48) {
                     uint32_t value = ExpectedValue((x + y * 64) % 64, parameters);
                     expected = {uint8_t((value & 1) * 255), uint8_t(((value >> 1) & 1) * 255), uint8_t(((value >> 2) & 1) * 255), 255};
                 }
@@ -478,6 +524,9 @@ struct Fixture {
         core.UnmapBuffer(*buffers[3]);
 
         if (!Check(exact && errors.load() == 0, "matrix/scissor/compute-to-fragment pixels"))
+            return false;
+
+        if (!Check(drawLimit != 1 || !validationEnabled || expectedRejections == 2, "both excessive draw counts rejected"))
             return false;
 
         completedCycles++;
@@ -588,6 +637,7 @@ int main(int argc, char** argv) {
         passed = SavePipelineCache(*fixture.device, fixture.core, cacheOutput, fixture.pipelineCache);
 
     passed = fixture.Cleanup() && passed && fixture.errors.load() == 0;
+    std::printf("NRI_INDIRECT_FEATURES {\"draw_limit\":%u,\"multi_draw_calls\":%u,\"count_draw_calls\":%u,\"split_draw_calls\":%u,\"expected_rejections\":%u}\n", fixture.drawLimit, fixture.multiDrawCalls, fixture.countDrawCalls, fixture.splitDrawCalls, fixture.expectedRejections);
     const auto& cache = fixture.pipelineCache;
     std::printf("NRI_PIPELINE_CACHE {\"loaded_bytes\":%llu,\"saved_bytes\":%llu,\"rejected_headers\":%u,\"cache_control\":%s,\"hit_required\":%s,\"create_ms\":%.3f,\"pipeline_ms\":%.3f}\n", (unsigned long long)cache.loadedBytes, (unsigned long long)cache.savedBytes, cache.rejectedHeaders, cache.control ? "true" : "false", cache.requireHit ? "true" : "false", cache.createMilliseconds, cache.pipelineMilliseconds);
     int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_shader_execution\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"indirect_cycles\":%u,\"indexed_offset_cases\":%u,\"graphics_state_cases\":%u,\"max_channel_error\":%u,\"legacy_sync_forced\":%s,\"shader_manifest\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.completedCycles, fixture.completedCycles, graphicsCases, graphicsCases, maxChannelError, NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false", shader_fixture::manifest);
