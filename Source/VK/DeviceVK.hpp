@@ -554,7 +554,7 @@ void DeviceVK::ProcessInstanceExtensions(Vector<const char*>& desiredInstanceExt
 #endif
     }
 
-    if (IsExtensionSupported(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME, supportedExts))
+    if (IsExtensionSupported(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME, supportedExts) && IsExtensionSupported(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME, desiredInstanceExts))
         desiredInstanceExts.push_back(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
 
     if (IsExtensionSupported(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME, supportedExts))
@@ -562,6 +562,12 @@ void DeviceVK::ProcessInstanceExtensions(Vector<const char*>& desiredInstanceExt
 
     if (IsExtensionSupported(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, supportedExts))
         desiredInstanceExts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+
+#if NRI_COMPATIBILITY_LEGACY_WSI
+    desiredInstanceExts.erase(std::remove_if(desiredInstanceExts.begin(), desiredInstanceExts.end(), [](const char* extension) {
+        return strcmp(extension, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) == 0 || strcmp(extension, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME) == 0;
+    }), desiredInstanceExts.end());
+#endif
 }
 
 void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, bool disableRayTracing, DeviceLostInfoLevel deviceLostInfoLevel) {
@@ -695,7 +701,7 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
     APPEND_EXT(true, VK_EXT_SAMPLE_LOCATIONS_EXTENSION_NAME);
     APPEND_EXT(true, VK_EXT_SHADER_ATOMIC_FLOAT_2_EXTENSION_NAME);
     APPEND_EXT(true, VK_EXT_SHADER_ATOMIC_FLOAT_EXTENSION_NAME);
-    APPEND_EXT(true, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+    APPEND_EXT(m_IsSupported.surfaceMaintenance1, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
     APPEND_EXT(true, VK_EXT_ZERO_INITIALIZE_DEVICE_MEMORY_EXTENSION_NAME);
     APPEND_EXT(true, VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME);
     APPEND_EXT(true, VK_NVX_BINARY_IMPORT_EXTENSION_NAME);
@@ -957,11 +963,16 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 
 #if NRI_COMPATIBILITY_RENDERPASS1 || NRI_COMPATIBILITY_RENDERPASS2
     NRI_RETURN_ON_FAILURE(this, !isWrapper && m_MinorVersion == 1, Result::UNSUPPORTED, "Renderpass1 fixture requires an NRI-created Vulkan1.1 profile");
-    // Keep only the two temporary baseline prerequisites, plus renderpass2
-    // when testing that path. Other device extensions are genuinely absent.
+    // Retain selected native fence/query controls, renderpass2 when requested,
+    // and the required presentation extension for the standalone WSI profile.
     desiredDeviceExts.erase(std::remove_if(desiredDeviceExts.begin(), desiredDeviceExts.end(), [](const char* extension) {
 #if NRI_COMPATIBILITY_RENDERPASS2
         if (strcmp(extension, VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME) == 0 || strcmp(extension, VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME) == 0)
+            return false;
+#endif
+
+#if NRI_COMPATIBILITY_LEGACY_WSI
+        if (strcmp(extension, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
             return false;
 #endif
 
@@ -2138,7 +2149,7 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             m_UnsupportedPipelineStages |= VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
         }
 
-        m_Desc.features.lowLatency = !needsScheduler && m_IsSupported.presentId != 0 && IsExtensionSupported(VK_NV_LOW_LATENCY_2_EXTENSION_NAME, desiredDeviceExts);
+        m_Desc.features.lowLatency = !needsScheduler && m_VK.GetPhysicalDeviceSurfaceCapabilities2KHR && m_IsSupported.presentId != 0 && IsExtensionSupported(VK_NV_LOW_LATENCY_2_EXTENSION_NAME, desiredDeviceExts);
         m_Desc.features.componentSwizzle = true;
         m_Desc.features.independentFrontAndBackStencilReferenceAndMasks = true;
         m_Desc.features.filterOpMinMax = features12.samplerFilterMinmax;
@@ -2803,7 +2814,11 @@ Result DeviceVK::ResolveInstanceDispatchTable(const Vector<const char*>& desired
         GET_INSTANCE_FUNC(GetPhysicalDeviceSurfaceCapabilities2KHR);
     }
 
+    m_IsSupported.surfaceMaintenance1 = IsExtensionSupported(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME, desiredInstanceExts);
+
     if (IsExtensionSupported(VK_KHR_SURFACE_EXTENSION_NAME, desiredInstanceExts)) {
+        GET_INSTANCE_FUNC(GetPhysicalDeviceSurfaceFormatsKHR);
+        GET_INSTANCE_FUNC(GetPhysicalDeviceSurfaceCapabilitiesKHR);
         GET_INSTANCE_FUNC(GetPhysicalDeviceSurfaceSupportKHR);
         GET_INSTANCE_FUNC(GetPhysicalDeviceSurfacePresentModesKHR);
         GET_INSTANCE_FUNC(DestroySurfaceKHR);

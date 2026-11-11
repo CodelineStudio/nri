@@ -2,6 +2,10 @@
 
 #pragma once
 
+#if NRI_COMPATIBILITY_ACQUIRE_RESULTS
+#    include <atomic>
+#endif
+
 namespace nri {
 
 struct RenderPassAttachmentDesc {
@@ -121,6 +125,7 @@ struct IsSupported {
     uint32_t storeOpNone                  : 1;
     uint32_t copyCommands2                : 1;
     uint32_t swapChainMutableFormat       : 1;
+    uint32_t surfaceMaintenance1          : 1;
     uint32_t presentId                    : 1;
     uint32_t memoryPriority               : 1;
     uint32_t memoryBudget                 : 1;
@@ -235,6 +240,16 @@ struct DeviceVK final : public DeviceBase {
         return m_QueryResetQueue;
     }
 
+#if NRI_COMPATIBILITY_ACQUIRE_RESULTS
+    inline uint32_t NextCompatibilityAcquire() {
+        return ++m_CompatibilityAcquireCount;
+    }
+
+    inline uint32_t NextCompatibilityPresent() {
+        return ++m_CompatibilityPresentCount;
+    }
+#endif
+
     VkRenderPass GetOrCreateRenderPass(const RenderPassDesc& desc);
     VkFramebuffer GetOrCreateFramebuffer(const FramebufferDesc& desc);
     void FillCreateInfo(const BufferDesc& bufferDesc, VkBufferCreateInfo& info) const;
@@ -344,6 +359,10 @@ private:
     Vector<TransferContextVK*> m_TransferContexts;
     LegacyQueueSchedulerVK* m_LegacyScheduler = nullptr;
     QueueVK* m_QueryResetQueue = nullptr;
+#if NRI_COMPATIBILITY_ACQUIRE_RESULTS
+    std::atomic<uint32_t> m_CompatibilityAcquireCount{0};
+    std::atomic<uint32_t> m_CompatibilityPresentCount{0};
+#endif
     DispatchTable m_VK = {};
     VkPhysicalDeviceMemoryProperties m_MemoryProps = {};
     VkPhysicalDeviceDescriptorHeapPropertiesEXT m_DescriptorHeapProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT};

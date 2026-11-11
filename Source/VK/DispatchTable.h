@@ -44,6 +44,8 @@ struct DispatchTable {
     VK_FUNC(GetPhysicalDeviceSurfaceCapabilities2KHR);
 
     // VK_KHR_surface
+    VK_FUNC(GetPhysicalDeviceSurfaceFormatsKHR);
+    VK_FUNC(GetPhysicalDeviceSurfaceCapabilitiesKHR);
     VK_FUNC(GetPhysicalDeviceSurfaceSupportKHR);
     VK_FUNC(GetPhysicalDeviceSurfacePresentModesKHR);
     VK_FUNC(DestroySurfaceKHR);

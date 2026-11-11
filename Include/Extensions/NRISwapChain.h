@@ -139,15 +139,17 @@ NriStruct(SwapChainInterface) {
     Nri(Result)             (NRI_CALL *GetDisplayDesc)          (NriRef(SwapChain) swapChain, NriOut NriRef(DisplayDesc) displayDesc);
 
     // "acquireSemaphore" must be created with "SWAPCHAIN_SEMAPHORE" initial value (ignored in D3D and WGPU). VK/WGPU: may return "OUT_OF_DATE"
-    // WGPU: "NOT_READY" means no texture was acquired; skip the frame, process window events and retry without recreating the swap chain
+    // VK/WGPU: "NOT_READY" means no texture was acquired; skip the frame, process window events and retry without recreating the swap chain
     Nri(Result)             (NRI_CALL *AcquireNextTexture)      (NriRef(SwapChain) swapChain, NriRef(Fence) acquireSemaphore, NriOut NonNriRef(uint32_t) textureIndex);
 
     // "presentId" must identify a previously queued presentation. Call once immediately before input sampling
+    // VK: "NOT_READY" means the bounded presentation wait timed out
     Nri(Result)             (NRI_CALL *WaitForPresent)          (NriRef(SwapChain) swapChain, uint64_t presentId);
 
     // A non-zero "presentId" associates the presentation with a tracked frame. Use 0 for an untracked presentation.
     // Non-zero "presentId" values must strictly increase across frames for each swap chain, i.e. gaps are allowed
     // "releaseSemaphore" must be created with "SWAPCHAIN_SEMAPHORE" initial value (ignored in D3D)
+    // VK: its signal operation and every signal it depends on must have been submitted before native presentation
     Nri(Result)             (NRI_CALL *QueuePresent)            (NriRef(SwapChain) swapChain, NriRef(Fence) releaseSemaphore, uint64_t presentId);
 };
 

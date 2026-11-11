@@ -52,6 +52,9 @@ private:
     void* m_Hwnd = nullptr;
     uint32_t m_TextureIndex = 0;
     SwapChainBits m_Flags = SwapChainBits::NONE;
+#if NRI_COMPATIBILITY_ACQUIRE_RESULTS
+    uint32_t m_TestAcquireCount = 0;
+#endif
 };
 
 } // namespace nri

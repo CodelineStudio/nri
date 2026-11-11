@@ -15,7 +15,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
-    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset"), default="nri_vulkan_buffer_baseline")
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -24,6 +24,8 @@ def main():
     parser.add_argument("--require-legacy-sync", action="store_true")
     parser.add_argument("--require-no-timeline", action="store_true")
     parser.add_argument("--require-no-host-reset", action="store_true")
+    parser.add_argument("--require-legacy-wsi", action="store_true")
+    parser.add_argument("--require-legacy-surface", action="store_true")
     parser.add_argument("--require-individual-features", action="store_true")
     parser.add_argument("--require-basic-optionals", action="store_true")
     parser.add_argument("--require-renderpass1", action="store_true")
@@ -81,6 +83,14 @@ def main():
                     raise ValueError("Timeline semaphore extension is still enabled")
                 if args.require_no_host_reset and (manifest['device'].get('host_query_reset') != 0 or 'VK_EXT_host_query_reset' in manifest['device']['extensions']):
                     raise ValueError("Required no-host-reset profile is not active")
+                if args.require_legacy_wsi or args.require_legacy_surface:
+                    if {'VK_KHR_get_surface_capabilities2', 'VK_EXT_surface_maintenance1'}.intersection(manifest['instance']['extensions']):
+                        raise ValueError("Legacy surface queries were not selected")
+                    if 'VK_EXT_swapchain_maintenance1' in manifest['device']['extensions']:
+                        raise ValueError("Swapchain maintenance requires the absent instance extension")
+                if args.require_legacy_wsi:
+                    if set(manifest['device']['extensions']) != {'VK_KHR_swapchain'}:
+                        raise ValueError("Legacy WSI profile must enable only the swapchain device extension")
                 if args.require_individual_features:
                     require_individual_features(manifest)
                 if args.require_renderpass1 or args.require_renderpass2:

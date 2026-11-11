@@ -180,6 +180,49 @@ legacy equivalents, and uses conservative all-commands / memory-access scopes
 for extension bits with no legacy spelling. Queue signals use the whole legacy
 submission scope. It does not add queue-idle waits.
 
+## Win32 presentation fixture
+
+`NRICompatibilityPresentation` uses `--fixture nri_vulkan_presentation`. It owns
+a small nonactivating window, renders and reads back every pixel of 400 frames,
+and performs 100 alternating-size recreations. FIFO and uncapped requests
+alternate; swapchain-returned extents are checked. Present semaphores are indexed
+by acquired image, and command/acquire reuse waits for confirmed GPU completion.
+A five-millisecond delayed producer on a second physical graphics queue exercises
+the first frame of each cycle. On a forced emulated-fence profile Present drains
+the deferred submission; on the native path the producer is submitted before
+Present, as required by VUID-vkQueuePresentKHR-pWaitSemaphores-03268. This fixture
+currently uses one frame in flight and requires two graphics queues.
+
+`-DNRI_COMPATIBILITY_LEGACY_WSI=ON` disables the instance capabilities2 and surface
+maintenance extensions. With API_MINOR=1 and RENDERPASS1 it retains KHR_swapchain
+in the otherwise minimal device extension profile. Add NO_TIMELINE,
+NO_HOST_RESET and FORCE_LEGACY_SYNC for the baseline. The runner option
+`--require-legacy-wsi` checks that only KHR_swapchain remains and both newer
+instance extensions are absent. `--require-legacy-surface` checks just the surface
+fallback and its maintenance dependency, for a native-device/legacy-surface
+combination. Turn LEGACY_WSI off for the normal modern comparison.
+
+`-DNRI_COMPATIBILITY_ACQUIRE_RESULTS=ON` also enables bounded WSI result injection:
+each new swapchain first returns TIMEOUT, then NOT_READY without acquiring an
+image; its first real successful acquire is reported as SUBOPTIMAL. Two global
+acquire ordinals return OUT_OF_DATE and SURFACE_LOST before calling Vulkan. Two
+present ordinals report those errors after a real present, preserving the required
+consumption of present-wait semaphores. The fixture requires 208 no-image returns
+with unchanged output indices, four error recoveries and all 400 exact readbacks.
+These injections are test-only and do not simulate the OS lifecycle itself.
+
+The initial Win32 run exposed a missing HINSTANCE in surface creation, now fixed.
+The first modern test incorrectly presented before its future timeline producer
+was submitted; that fixture error is corrected, without changing native timeline
+semantics. Keep the failed receipts. Unexpected validation errors stop subsequent
+frames. The runner bounds the process and destroys only its owned test window.
+
+Retirement boundary: the fixture uses DeviceWaitIdle before deleting each chain's
+objects, matching the existing NRI convention. This is runtime evidence, not proof
+that unextended Vulkan provides a presentation completion fence. Explicit present
+fences/legacy retirement policy, real surface loss, minimization, Android lifecycle,
+multiple frames in flight and scanout inspection remain separate acceptance work.
+
 This is transfer/synchronization and offscreen attachment qualification, not
 Vulkan 1.1 acceptance.
 The baseline does not exercise WSI, execute shaders, or prove future waits and

@@ -42,6 +42,7 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
         if (swapChainDesc.window.windows.hwnd) {
             VkWin32SurfaceCreateInfoKHR win32SurfaceInfo = {VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
             win32SurfaceInfo.hwnd = (HWND)swapChainDesc.window.windows.hwnd;
+            win32SurfaceInfo.hinstance = (HINSTANCE)GetWindowLongPtrW(win32SurfaceInfo.hwnd, GWLP_HINSTANCE);
 
             VkResult vkResult = vk.CreateWin32SurfaceKHR(m_Device, &win32SurfaceInfo, m_Device.GetVkAllocationCallbacks(), &m_Surface);
             NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkCreateWin32SurfaceKHR");
@@ -120,15 +121,30 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
         surfaceInfo.surface = m_Surface;
 
         uint32_t formatNum = 0;
-        VkResult vkResult = vk.GetPhysicalDeviceSurfaceFormats2KHR(m_Device, &surfaceInfo, &formatNum, nullptr);
-        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetPhysicalDeviceSurfaceFormats2KHR");
+        VkResult vkResult = vk.GetPhysicalDeviceSurfaceFormats2KHR
+            ? vk.GetPhysicalDeviceSurfaceFormats2KHR(m_Device, &surfaceInfo, &formatNum, nullptr)
+            : vk.GetPhysicalDeviceSurfaceFormatsKHR(m_Device, m_Surface, &formatNum, nullptr);
+        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "GetPhysicalDeviceSurfaceFormats");
+        NRI_RETURN_ON_FAILURE(&m_Device, formatNum != 0, Result::UNSUPPORTED, "Surface has no formats");
 
         Scratch<VkSurfaceFormat2KHR> surfaceFormats = NRI_ALLOCATE_SCRATCH(m_Device, VkSurfaceFormat2KHR, formatNum);
+
         for (uint32_t i = 0; i < formatNum; i++)
             surfaceFormats[i] = {VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR};
 
-        vkResult = vk.GetPhysicalDeviceSurfaceFormats2KHR(m_Device, &surfaceInfo, &formatNum, surfaceFormats);
-        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetPhysicalDeviceSurfaceFormats2KHR");
+        if (vk.GetPhysicalDeviceSurfaceFormats2KHR)
+            vkResult = vk.GetPhysicalDeviceSurfaceFormats2KHR(m_Device, &surfaceInfo, &formatNum, surfaceFormats);
+        else {
+            Scratch<VkSurfaceFormatKHR> legacyFormats = NRI_ALLOCATE_SCRATCH(m_Device, VkSurfaceFormatKHR, formatNum);
+            vkResult = vk.GetPhysicalDeviceSurfaceFormatsKHR(m_Device, m_Surface, &formatNum, legacyFormats);
+            NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "GetPhysicalDeviceSurfaceFormats");
+
+            for (uint32_t i = 0; i < formatNum; i++)
+                surfaceFormats[i].surfaceFormat = legacyFormats[i];
+        }
+
+        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "GetPhysicalDeviceSurfaceFormats");
+        NRI_RETURN_ON_FAILURE(&m_Device, formatNum != 0, Result::UNSUPPORTED, "Surface format list became empty");
 
         auto priority_BT709_G22_16BIT = [](const VkSurfaceFormat2KHR& s) -> uint32_t {
             if (s.surfaceFormat.format != VK_FORMAT_R16G16B16A16_SFLOAT)
@@ -298,8 +314,10 @@ Result SwapChainVK::Create(const SwapChainDesc& swapChainDesc) {
         if (m_Device.m_IsSupported.swapChainMaintenance1)
             PNEXTCHAIN_APPEND_STRUCT(surfacePresentMode);
 
-        VkResult vkResult = vk.GetPhysicalDeviceSurfaceCapabilities2KHR(m_Device, &surfaceInfo, &surfaceCaps2);
-        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "vkGetPhysicalDeviceSurfaceCapabilities2KHR");
+        VkResult vkResult = vk.GetPhysicalDeviceSurfaceCapabilities2KHR
+            ? vk.GetPhysicalDeviceSurfaceCapabilities2KHR(m_Device, &surfaceInfo, &surfaceCaps2)
+            : vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(m_Device, m_Surface, &surfaceCaps2.surfaceCapabilities);
+        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "GetPhysicalDeviceSurfaceCapabilities");
 
         // TODO: that's the minimal check to detect scaling support
         if (surfacePresentScalingCaps.supportedPresentScaling != 0 && surfacePresentScalingCaps.supportedPresentGravityX != 0 && surfacePresentScalingCaps.supportedPresentGravityY != 0)
@@ -487,13 +505,39 @@ NRI_INLINE Result SwapChainVK::AcquireNextTexture(FenceVK& acquireSemaphore, uin
     acquireInfo.deviceMask = NODE_MASK;
 
     const auto& vk = m_Device.GetDispatchTable();
-    VkResult vkResult = vk.AcquireNextImage2KHR(m_Device, &acquireInfo, &m_TextureIndex);
-    if (vkResult == VK_ERROR_OUT_OF_DATE_KHR)
+    uint32_t acquiredIndex = 0;
+    VkResult vkResult;
+#if NRI_COMPATIBILITY_ACQUIRE_RESULTS
+    ++m_TestAcquireCount;
+
+    if (m_TestAcquireCount <= 2)
+        vkResult = m_TestAcquireCount == 1 ? VK_TIMEOUT : VK_NOT_READY;
+    else {
+        uint32_t ordinal = m_Device.NextCompatibilityAcquire();
+
+        if (ordinal == 17)
+            vkResult = VK_ERROR_OUT_OF_DATE_KHR;
+        else if (ordinal == 29)
+            vkResult = VK_ERROR_SURFACE_LOST_KHR;
+        else
+            vkResult = vk.AcquireNextImage2KHR(m_Device, &acquireInfo, &acquiredIndex);
+
+        if (m_TestAcquireCount == 3 && vkResult == VK_SUCCESS)
+            vkResult = VK_SUBOPTIMAL_KHR;
+    }
+#else
+    vkResult = vk.AcquireNextImage2KHR(m_Device, &acquireInfo, &acquiredIndex);
+#endif
+
+    if (vkResult == VK_ERROR_OUT_OF_DATE_KHR || vkResult == VK_ERROR_SURFACE_LOST_KHR)
         return Result::OUT_OF_DATE;
+
+    if (vkResult == VK_TIMEOUT || vkResult == VK_NOT_READY)
+        return Result::NOT_READY;
 
     NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "AcquireNextImage2KHR");
 
-    textureIndex = m_TextureIndex;
+    textureIndex = m_TextureIndex = acquiredIndex;
 
     return Result::SUCCESS;
 }
@@ -507,12 +551,17 @@ NRI_INLINE Result SwapChainVK::WaitForPresent(uint64_t presentId) {
     if (vkResult == VK_ERROR_OUT_OF_DATE_KHR)
         return Result::OUT_OF_DATE;
 
+    if (vkResult == VK_TIMEOUT)
+        return Result::NOT_READY;
+
     NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "WaitForPresentKHR");
 
     return Result::SUCCESS;
 }
 
 NRI_INLINE Result SwapChainVK::Present(FenceVK& releaseSemaphore, uint64_t presentIdValue) {
+    const uint32_t textureIndex = m_TextureIndex;
+
     if (m_Device.GetLegacyScheduler()) {
         Result result = m_Device.GetLegacyScheduler()->Drain(m_Queue, false);
 
@@ -530,7 +579,7 @@ NRI_INLINE Result SwapChainVK::Present(FenceVK& releaseSemaphore, uint64_t prese
     presentInfo.pWaitSemaphores = &vkReleaseSemaphore;
     presentInfo.swapchainCount = 1;
     presentInfo.pSwapchains = &m_Handle;
-    presentInfo.pImageIndices = &m_TextureIndex;
+    presentInfo.pImageIndices = &textureIndex;
 
     VkPresentIdKHR presentId = {VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
     presentId.swapchainCount = 1;
@@ -545,10 +594,23 @@ NRI_INLINE Result SwapChainVK::Present(FenceVK& releaseSemaphore, uint64_t prese
     const auto& vk = m_Device.GetDispatchTable();
     VkResult vkResult = vk.QueuePresentKHR(*m_Queue, &presentInfo);
 
+#if NRI_COMPATIBILITY_ACQUIRE_RESULTS
+    // Rejected presentation still enqueues its semaphore waits. Call Vulkan
+    // first so the injection preserves that lifetime and consumption contract.
+    if (vkResult == VK_SUCCESS || vkResult == VK_SUBOPTIMAL_KHR) {
+        uint32_t ordinal = m_Device.NextCompatibilityPresent();
+
+        if (ordinal == 13)
+            vkResult = VK_ERROR_OUT_OF_DATE_KHR;
+        else if (ordinal == 23)
+            vkResult = VK_ERROR_SURFACE_LOST_KHR;
+    }
+#endif
+
     if ((m_Flags & SwapChainBits::ALLOW_LOW_LATENCY) && presentIdValue != 0)
         SetLatencyMarker(presentIdValue, (LatencyMarker)VK_LATENCY_MARKER_PRESENT_END_NV);
 
-    if (vkResult == VK_ERROR_OUT_OF_DATE_KHR)
+    if (vkResult == VK_ERROR_OUT_OF_DATE_KHR || vkResult == VK_ERROR_SURFACE_LOST_KHR)
         return Result::OUT_OF_DATE;
 
     NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "QueuePresentKHR");

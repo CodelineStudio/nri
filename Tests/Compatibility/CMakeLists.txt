@@ -12,6 +12,14 @@ if(NOT NRI_ENABLE_VK_SUPPORT)
 endif()
 
 option(NRI_COMPATIBILITY_NO_TIMELINE "Disable native timeline features and test binary value-fence scheduling" OFF)
+option(NRI_COMPATIBILITY_LEGACY_WSI "Disable surface capabilities2/maintenance and retain swapchain in renderpass profiles" OFF)
+option(NRI_COMPATIBILITY_ACQUIRE_RESULTS "Inject acquire TIMEOUT/NOT_READY/SUBOPTIMAL and acquire/present OUT_OF_DATE/SURFACE_LOST" OFF)
+if(NRI_COMPATIBILITY_LEGACY_WSI)
+    target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_LEGACY_WSI=1)
+endif()
+if(NRI_COMPATIBILITY_ACQUIRE_RESULTS)
+    target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_ACQUIRE_RESULTS=1)
+endif()
 option(NRI_COMPATIBILITY_NO_HOST_RESET "Disable native host query reset and test ordered synchronous reset emulation" OFF)
 if(NRI_COMPATIBILITY_NO_HOST_RESET)
     target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_NO_HOST_RESET=1)
@@ -103,6 +111,25 @@ target_compile_definitions(NRICompatibilityFenceSequences PRIVATE
 target_compile_definitions(NRICompatibilityQueryReset PRIVATE
     NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
     NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}")
+
+if(WIN32)
+    add_executable(NRICompatibilityPresentation presentation_win32.cpp)
+    target_compile_features(NRICompatibilityPresentation PRIVATE cxx_std_17)
+    set_target_properties(NRICompatibilityPresentation PROPERTIES CXX_EXTENSIONS OFF)
+    target_link_libraries(NRICompatibilityPresentation PRIVATE NRI Threads::Threads user32)
+    target_compile_definitions(NRICompatibilityPresentation PRIVATE
+        NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+        NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+        NRI_COMPATIBILITY_DEFERRED_PRESENT=$<OR:$<BOOL:${NRI_COMPATIBILITY_NO_TIMELINE}>,$<BOOL:${NRI_COMPATIBILITY_NO_HOST_RESET}>>
+        NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>
+        NRI_COMPATIBILITY_ACQUIRE_RESULTS=$<BOOL:${NRI_COMPATIBILITY_ACQUIRE_RESULTS}>)
+
+    if(NOT NRI_STATIC_LIBRARY)
+        add_custom_command(TARGET NRICompatibilityPresentation POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityPresentation>"
+            VERBATIM)
+    endif()
+endif()
 
 if(NOT NRI_STATIC_LIBRARY)
     add_custom_command(TARGET NRICompatibilityQueryReset POST_BUILD

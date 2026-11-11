@@ -30,9 +30,10 @@ waits, partial host query resets, 128 alternating-queue retirement cycles and an
 injected submit failure after partial native submission. Masked API1.1 runs remove
 the timeline extension entirely; a modern sync2/no-timeline combination is also
 covered. Shared timeline handles, wrapped no-timeline devices and low-latency
-timeline interop are unsupported on the emulated path. WSI integration has source
-changes for deferred work and acquisition locking, but runtime WSI acceptance,
-real device-loss handling, native interop and broader stress remain pending.
+timeline interop are unsupported on the emulated path. The Win32 WSI fixture now
+exercises deferred presentation and recreation; Android lifecycle, full
+presentation-retirement proof, real device loss, native interop and broader
+stress remain pending.
 
 Host query reset now has a synchronous device-command fallback. The scheduler
 submits the exact reset range ahead of host-deferred FIFO heads and waits for its
@@ -57,7 +58,33 @@ command-buffer interop with externally blocking events/work is outside this
 profile's supported contract; ordinary NRI commands and the tested imported query
 operations remain supported. General native interop qualification is pending.
 API1.1 offscreen/sequence/copy-only fixtures pass with no device extensions.
-This is still partial qualification: shaders, WSI and actual legacy devices remain.
+This is still partial qualification: shaders, complete WSI and actual legacy devices remain.
+
+Surface capabilities/formats queries fall back to the original KHR_surface
+commands when capabilities2 is absent. Surface-maintenance enablement respects
+its instance dependency, and swapchain maintenance is not enabled without it.
+Low-latency surface queries are advertised only when their query dispatch exists.
+Win32 surface creation obtains the window's actual HINSTANCE. Acquire TIMEOUT and
+NOT_READY return NOT_READY without replacing the image index; surface loss and
+out-of-date results request recreation. Present also maps surface loss to
+OUT_OF_DATE, and bounded WaitForPresent timeout returns NOT_READY.
+
+The standalone Win32 fixture covers 100 window resize/recreation cycles and 400
+exact image readbacks per profile, alternating FIFO and uncapped requests. It
+uses per-image present semaphores and tests delayed cross-queue producers.
+The scheduler drains pending producers before native presentation. Native
+timeline callers must submit all transitive producers before QueuePresent
+(VUID 03268); a future QueueSubmit wait alone does not satisfy this WSI rule.
+Injected acquire TIMEOUT/NOT_READY/SUBOPTIMAL and acquire/present
+OUT_OF_DATE/SURFACE_LOST cases exercise return mapping and recreation without
+pretending to reproduce an OS-level surface-loss event.
+
+Current fixture cleanup uses the existing DeviceWaitIdle convention. Passing
+validation on this Windows driver is not a complete proof of presentation-engine
+resource retirement: Vulkan's unextended present operation has no completion
+fence. Maintenance present fences and the legacy shutdown/retirement policy need
+separate qualification before release. No Android, scanout-pixel, minimized-window
+or sustained multi-frame-in-flight acceptance is claimed by this fixture.
 The modern GPU requesting API1.1 is not a real older-driver acceptance result.
 Baseline upstream: `a20efc8f7c6e4e6045acd6f29bf90b0d26ac3df5`.
 Fork branch: `codeline/vulkan-1.1`. Vulkan 1.0 and GLES are outside this work.
