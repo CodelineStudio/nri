@@ -132,6 +132,8 @@ NriStruct(DisplayDesc) {
 // Threadsafe: yes
 NriStruct(SwapChainInterface) {
     Nri(Result)             (NRI_CALL *CreateSwapChain)         (NriRef(Device) device, const NriRef(SwapChainDesc) swapChainDesc, NriOut NriRef(SwapChain*) swapChain);
+    // VK: successfully wait the presenting queue/device idle before destroying the swap chain and its present semaphores.
+    // With maintenance1 enabled, these NRI waits include presentation payload retirement; a rendering fence alone does not.
     void                    (NRI_CALL *DestroySwapChain)        (NriPtr(SwapChain) swapChain);
     NriPtr(Texture) const*  (NRI_CALL *GetSwapChainTextures)    (const NriRef(SwapChain) swapChain, NriOut NonNriRef(uint32_t) textureNum);
 

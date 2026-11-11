@@ -71,6 +71,8 @@ struct Fixture {
     uint32_t notReady = 0;
     uint32_t delayedPresents = 0;
     uint32_t outOfDate = 0;
+    uint32_t queueIdleChecks = 0;
+    uint32_t deviceIdleChecks = 0;
     bool needsRecreation = false;
     bool coreReady = false;
     bool wsiReady = false;
@@ -392,7 +394,18 @@ struct Fixture {
         if (!coreReady)
             return true;
 
-        bool idle = core.DeviceWaitIdle(device) == nri::Result::SUCCESS;
+        bool idle;
+
+        if (swapChain && (cycles % 2)) {
+            idle = core.QueueWaitIdle(queues[0]) == nri::Result::SUCCESS;
+            queueIdleChecks++;
+        } else {
+            idle = core.DeviceWaitIdle(device) == nri::Result::SUCCESS;
+            deviceIdleChecks++;
+        }
+
+        if (!idle)
+            return false;
 
         for (auto* view : views) {
             if (view)
@@ -423,6 +436,12 @@ struct Fixture {
 
     bool Cleanup() {
         bool idle = DestroyChain();
+
+        if (!idle) {
+            std::fprintf(stderr, "Retirement did not complete; retaining native objects until owned process exit\n");
+
+            return false;
+        }
 
         if (coreReady) {
             if (command)
@@ -502,8 +521,10 @@ int main(int argc, char** argv) {
     if (NRI_COMPATIBILITY_ACQUIRE_RESULTS)
         passed = passed && fixture.notReady == 208 && fixture.outOfDate == 4;
 
-    int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_presentation\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"resize_cycles\":%u,\"exact_frames\":%u,\"no_image_acquires\":%u,\"delayed_present_producers\":%u,\"out_of_date_recoveries\":%u,\"host_deferred_present\":%s,\"acquire_results_injected\":%s,\"legacy_sync_forced\":%s}\n",
-        passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driverVersion, fixture.errors.load(), fixture.warnings.load(), fixture.cycles, fixture.frames, fixture.notReady, fixture.delayedPresents, fixture.outOfDate, NRI_COMPATIBILITY_DEFERRED_PRESENT ? "true" : "false", NRI_COMPATIBILITY_ACQUIRE_RESULTS ? "true" : "false", NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false");
+    passed = passed && fixture.queueIdleChecks >= 50 && fixture.deviceIdleChecks >= 50;
+
+    int written = std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_presentation\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"resize_cycles\":%u,\"exact_frames\":%u,\"no_image_acquires\":%u,\"delayed_present_producers\":%u,\"out_of_date_recoveries\":%u,\"queue_idle_checks\":%u,\"device_idle_checks\":%u,\"host_deferred_present\":%s,\"acquire_results_injected\":%s,\"legacy_sync_forced\":%s}\n",
+        passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driverVersion, fixture.errors.load(), fixture.warnings.load(), fixture.cycles, fixture.frames, fixture.notReady, fixture.delayedPresents, fixture.outOfDate, fixture.queueIdleChecks, fixture.deviceIdleChecks, NRI_COMPATIBILITY_DEFERRED_PRESENT ? "true" : "false", NRI_COMPATIBILITY_ACQUIRE_RESULTS ? "true" : "false", NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false");
 
     if (written < 0 || std::fflush(stdout) != 0)
         return 3;

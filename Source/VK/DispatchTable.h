@@ -79,6 +79,8 @@ struct DispatchTable {
     VK_FUNC(CreateFence);
     VK_FUNC(DestroyFence);
     VK_FUNC(GetFenceStatus);
+    VK_FUNC(WaitForFences);
+    VK_FUNC(ResetFences);
     VK_FUNC(CreateSemaphore);                             // + | +
     VK_FUNC(CreateDescriptorPool);                        // + | +
     VK_FUNC(CreatePipelineLayout);                        // + | +

@@ -6,8 +6,11 @@ namespace nri {
 
 struct QueueVK final : public DebugNameBase {
     inline QueueVK(DeviceVK& device)
-        : m_Device(device) {
+        : m_Device(device)
+        , m_PresentFences(device.GetStdAllocator()) {
     }
+
+    ~QueueVK();
 
     inline operator VkQueue() const {
         return m_Handle;
@@ -48,8 +51,24 @@ struct QueueVK final : public DebugNameBase {
     Result Submit(const QueueSubmitDesc& queueSubmitDesc);
     Result WaitIdle();
 
+    // Caller holds GetLock(). Tracks only maintenance1 presentation payloads;
+    // ordinary GPU submission completion remains the caller's responsibility.
+    VkResult Present(const VkPresentInfoKHR& presentInfo);
+
 private:
     DeviceVK& m_Device;
+    Vector<VkFence> m_PresentFences;
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+    uint64_t m_PresentSubmitted = 0;
+    uint64_t m_PresentRetired = 0;
+    uint32_t m_PresentPeak = 0;
+#endif
+#if NRI_COMPATIBILITY_PRESENT_OOM
+    bool m_TestPresentFailed = false;
+#endif
+#if NRI_COMPATIBILITY_PRESENT_TIMEOUT
+    bool m_TestPresentTimedOut = false;
+#endif
     VkQueue m_Handle = VK_NULL_HANDLE;
     Lock* m_Lock = nullptr; // lock actually used
     uint32_t m_FamilyIndex = INVALID_FAMILY_INDEX;

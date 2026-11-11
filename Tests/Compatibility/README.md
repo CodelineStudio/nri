@@ -218,9 +218,22 @@ semantics. Keep the failed receipts. Unexpected validation errors stop subsequen
 frames. The runner bounds the process and destroys only its owned test window.
 
 Retirement boundary: the fixture uses DeviceWaitIdle before deleting each chain's
-objects, matching the existing NRI convention. This is runtime evidence, not proof
-that unextended Vulkan provides a presentation completion fence. Explicit present
-fences/legacy retirement policy, real surface loss, minimization, Android lifecycle,
+objects. On maintenance1, NRI now includes all presentation completion fences in
+this wait and reuses only signaled fences during normal presentation. Run with
+`--require-present-retirement` to require 400 accepted and retired payloads, zero
+pending records and a peak of at most four retained native fences for this fixture.
+`-DNRI_COMPATIBILITY_PRESENT_OOM=ON` rejects the first maintenance present before
+native enqueue; the fixture must fail promptly with the expected NRI error and
+validation-clean cleanup, without waiting for that unsubmitted fence.
+`-DNRI_COMPATIBILITY_PRESENT_TIMEOUT=ON` times out the first retirement wait;
+the fixture must report failure, preserve objects, then retire them on its cleanup
+retry without Vulkan lifetime errors. If that retry also fails, the owned process
+exits with the objects retained instead of destroying potentially live resources.
+These injections remain off in normal builds. These fences do not prove displayed
+scanout completion; they prove that presentation payloads can safely be released.
+
+Without maintenance1, the idle convention is runtime evidence, not a portable
+presentation completion proof. Legacy platform qualification, real surface loss, minimization, Android lifecycle,
 multiple frames in flight and scanout inspection remain separate acceptance work.
 
 This is transfer/synchronization and offscreen attachment qualification, not

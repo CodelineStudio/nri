@@ -591,21 +591,7 @@ NRI_INLINE Result SwapChainVK::Present(FenceVK& releaseSemaphore, uint64_t prese
     if ((m_Flags & SwapChainBits::ALLOW_LOW_LATENCY) && presentIdValue != 0)
         SetLatencyMarker(presentIdValue, (LatencyMarker)VK_LATENCY_MARKER_PRESENT_START_NV);
 
-    const auto& vk = m_Device.GetDispatchTable();
-    VkResult vkResult = vk.QueuePresentKHR(*m_Queue, &presentInfo);
-
-#if NRI_COMPATIBILITY_ACQUIRE_RESULTS
-    // Rejected presentation still enqueues its semaphore waits. Call Vulkan
-    // first so the injection preserves that lifetime and consumption contract.
-    if (vkResult == VK_SUCCESS || vkResult == VK_SUBOPTIMAL_KHR) {
-        uint32_t ordinal = m_Device.NextCompatibilityPresent();
-
-        if (ordinal == 13)
-            vkResult = VK_ERROR_OUT_OF_DATE_KHR;
-        else if (ordinal == 23)
-            vkResult = VK_ERROR_SURFACE_LOST_KHR;
-    }
-#endif
+    VkResult vkResult = m_Queue->Present(presentInfo);
 
     if ((m_Flags & SwapChainBits::ALLOW_LOW_LATENCY) && presentIdValue != 0)
         SetLatencyMarker(presentIdValue, (LatencyMarker)VK_LATENCY_MARKER_PRESENT_END_NV);

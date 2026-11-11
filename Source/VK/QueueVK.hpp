@@ -1,5 +1,106 @@
 // © 2021 NVIDIA Corporation
 
+static inline VkResult PresentNative(DeviceVK& device, VkQueue queue, const VkPresentInfoKHR& presentInfo) {
+    VkResult result = device.GetDispatchTable().QueuePresentKHR(queue, &presentInfo);
+#if NRI_COMPATIBILITY_ACQUIRE_RESULTS
+    // Rejected presentation still enqueues its semaphore waits. Call Vulkan
+    // first, then inject before retirement bookkeeping observes the result.
+    if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR) {
+        uint32_t ordinal = device.NextCompatibilityPresent();
+
+        if (ordinal == 13)
+            result = VK_ERROR_OUT_OF_DATE_KHR;
+        else if (ordinal == 23)
+            result = VK_ERROR_SURFACE_LOST_KHR;
+    }
+#endif
+
+    return result;
+}
+
+QueueVK::~QueueVK() {
+    // As with submitted resources, the caller must complete queue work before
+    // device destruction. WaitIdle also waits for maintenance1 presentations.
+    const auto& vk = m_Device.GetDispatchTable();
+
+    for (VkFence fence : m_PresentFences)
+        vk.DestroyFence(m_Device, fence, m_Device.GetVkAllocationCallbacks());
+}
+
+VkResult QueueVK::Present(const VkPresentInfoKHR& presentInfo) {
+    const auto& vk = m_Device.GetDispatchTable();
+
+    if (!m_Device.m_IsSupported.swapChainMaintenance1)
+        return PresentNative(m_Device, m_Handle, presentInfo);
+
+    // Reuse only a fence whose previous presentation payload has retired.
+    // The vector contains accepted operations, never failed enqueue attempts.
+    // Reserve before native acceptance so recording it cannot allocate afterward.
+    m_PresentFences.reserve(m_PresentFences.size() + 1);
+    VkFence fence = VK_NULL_HANDLE;
+
+    for (size_t i = 0; i < m_PresentFences.size(); i++) {
+        VkResult result = vk.GetFenceStatus(m_Device, m_PresentFences[i]);
+
+        if (result == VK_NOT_READY)
+            continue;
+
+        if (result != VK_SUCCESS)
+            return result;
+
+        fence = m_PresentFences[i];
+        result = vk.ResetFences(m_Device, 1, &fence);
+
+        if (result != VK_SUCCESS)
+            return result;
+
+        m_PresentFences.erase(m_PresentFences.begin() + i);
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+        m_PresentRetired++;
+#endif
+        break;
+    }
+
+    if (!fence) {
+        VkFenceCreateInfo create = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        VkResult result = vk.CreateFence(m_Device, &create, m_Device.GetVkAllocationCallbacks(), &fence);
+
+        if (result != VK_SUCCESS)
+            return result;
+    }
+
+    VkSwapchainPresentFenceInfoEXT completion = {VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
+    completion.pNext = presentInfo.pNext;
+    completion.swapchainCount = 1;
+    completion.pFences = &fence;
+    VkPresentInfoKHR tracked = presentInfo;
+    tracked.pNext = &completion;
+    VkResult result;
+#if NRI_COMPATIBILITY_PRESENT_OOM
+    if (!m_TestPresentFailed) {
+        m_TestPresentFailed = true;
+        result = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+    } else
+#endif
+        result = PresentNative(m_Device, m_Handle, tracked);
+    const bool enqueued = result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR || result == VK_ERROR_OUT_OF_DATE_KHR ||
+        result == VK_ERROR_SURFACE_LOST_KHR || result == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT || result == VK_ERROR_PRESENT_TIMING_QUEUE_FULL_EXT;
+
+    if (enqueued) {
+        m_PresentFences.push_back(fence);
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+        m_PresentSubmitted++;
+        m_PresentPeak = std::max(m_PresentPeak, (uint32_t)m_PresentFences.size());
+#endif
+    } else {
+        // OOM leaves the present's objects untouched. Device loss permits native
+        // cleanup; neither case produces a fence that a later idle should wait.
+        vk.DestroyFence(m_Device, fence, m_Device.GetVkAllocationCallbacks());
+    }
+
+    return result;
+}
+
 Result QueueVK::Create(QueueType type, uint32_t familyIndex, VkQueue handle, Lock* sharedLock) {
     m_Type = type;
     m_FamilyIndex = familyIndex;
@@ -189,6 +290,32 @@ NRI_INLINE Result QueueVK::WaitIdle() {
     const auto& vk = m_Device.GetDispatchTable();
     VkResult vkResult = vk.QueueWaitIdle(m_Handle);
     NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "QueueWaitIdle");
+
+    if (!m_PresentFences.empty()) {
+#if NRI_COMPATIBILITY_PRESENT_TIMEOUT
+        if (!m_TestPresentTimedOut) {
+            m_TestPresentTimedOut = true;
+            vkResult = VK_TIMEOUT;
+        } else
+#endif
+        vkResult = vk.WaitForFences(m_Device, (uint32_t)m_PresentFences.size(), m_PresentFences.data(), VK_TRUE, MsToUs(NRI_TIMEOUT_FENCE));
+        NRI_RETURN_ON_BAD_VKRESULT(&m_Device, vkResult, "WaitForFences(presentation)");
+        NRI_RETURN_ON_FAILURE(&m_Device, vkResult == VK_SUCCESS, Result::FAILURE, "Presentation retirement timed out; resources are still in use");
+
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+        m_PresentRetired += m_PresentFences.size();
+#endif
+
+        for (VkFence fence : m_PresentFences)
+            vk.DestroyFence(m_Device, fence, m_Device.GetVkAllocationCallbacks());
+
+        m_PresentFences.clear();
+    }
+
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+    if (m_PresentSubmitted)
+        NRI_REPORT_INFO(&m_Device, "NRI_PRESENT_RETIREMENT {\"submitted\":%llu,\"retired\":%llu,\"pending\":%u,\"peak_fences\":%u}", (unsigned long long)m_PresentSubmitted, (unsigned long long)m_PresentRetired, (uint32_t)m_PresentFences.size(), m_PresentPeak);
+#endif
 
     return Result::SUCCESS;
 }

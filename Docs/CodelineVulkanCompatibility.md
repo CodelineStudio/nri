@@ -79,11 +79,21 @@ Injected acquire TIMEOUT/NOT_READY/SUBOPTIMAL and acquire/present
 OUT_OF_DATE/SURFACE_LOST cases exercise return mapping and recreation without
 pretending to reproduce an OS-level surface-loss event.
 
-Current fixture cleanup uses the existing DeviceWaitIdle convention. Passing
-validation on this Windows driver is not a complete proof of presentation-engine
-resource retirement: Vulkan's unextended present operation has no completion
-fence. Maintenance present fences and the legacy shutdown/retirement policy need
-separate qualification before release. No Android, scanout-pixel, minimized-window
+When swapchain maintenance1 is enabled, each presentation now carries a native
+completion fence. A queue reuses only signaled fences, and its NRI QueueWaitIdle
+(also reached by DeviceWaitIdle) waits for every retained presentation fence
+before reporting success. This establishes payload retirement for the caller's
+swapchain and present semaphores; ordinary rendering fences alone do not.
+Out-of-date/surface-loss operations remain tracked because their waits are still
+enqueued. Memory-exhaustion rejection leaves no pending fence to wait forever.
+A retirement timeout reports failure and retains the pending records: callers
+must not destroy resources on a failed wait. This does not add a wait per frame.
+
+Without maintenance1, use per-image presentation semaphores and the existing
+queue/device-idle teardown convention. Khronos documents that unextended Vulkan
+cannot give the same portable shutdown proof. This remains a platform-qualified
+compatibility policy and an explicit release coverage gap, not a reason to require
+a newer extension silently. No Android, scanout-pixel, minimized-window
 or sustained multi-frame-in-flight acceptance is claimed by this fixture.
 The modern GPU requesting API1.1 is not a real older-driver acceptance result.
 Baseline upstream: `a20efc8f7c6e4e6045acd6f29bf90b0d26ac3df5`.

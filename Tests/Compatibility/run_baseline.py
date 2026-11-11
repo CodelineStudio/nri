@@ -26,6 +26,7 @@ def main():
     parser.add_argument("--require-no-host-reset", action="store_true")
     parser.add_argument("--require-legacy-wsi", action="store_true")
     parser.add_argument("--require-legacy-surface", action="store_true")
+    parser.add_argument("--require-present-retirement", action="store_true")
     parser.add_argument("--require-individual-features", action="store_true")
     parser.add_argument("--require-basic-optionals", action="store_true")
     parser.add_argument("--require-renderpass1", action="store_true")
@@ -77,6 +78,19 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.require_present_retirement:
+                    records = [json.loads(line.split('NRI_PRESENT_RETIREMENT ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_PRESENT_RETIREMENT ' in line]
+                    if args.fixture != 'nri_vulkan_presentation' or not records:
+                        raise ValueError('Presentation retirement was not observed')
+                    for record in records:
+                        if any(type(record.get(key)) is not int or record[key] < 0 for key in ('submitted', 'retired', 'pending', 'peak_fences')):
+                            raise ValueError('Invalid presentation retirement counters')
+                        if record['retired'] + record['pending'] != record['submitted']:
+                            raise ValueError('Unaccounted presentation payloads')
+                    final = records[-1]
+                    if final['submitted'] != receipt['fixture']['exact_frames'] or final['pending'] != 0 or not 1 <= final['peak_fences'] <= 4:
+                        raise ValueError('Presentation payloads did not retire within the fixture bound')
+                    receipt['presentation_retirement'] = final
                 if args.require_no_timeline and manifest['device']['timeline'] != 0:
                     raise ValueError("Required no-timeline profile is not active")
                 if args.require_no_timeline and 'VK_KHR_timeline_semaphore' in manifest['device']['extensions']:

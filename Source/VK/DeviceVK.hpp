@@ -2855,6 +2855,8 @@ Result DeviceVK::ResolveDispatchTable(const Vector<const char*>& desiredDeviceEx
     GET_DEVICE_CORE_FUNC(CreateFence);
     GET_DEVICE_CORE_FUNC(DestroyFence);
     GET_DEVICE_CORE_FUNC(GetFenceStatus);
+    GET_DEVICE_CORE_FUNC(WaitForFences);
+    GET_DEVICE_CORE_FUNC(ResetFences);
     GET_DEVICE_CORE_FUNC(CreateDescriptorPool);
     GET_DEVICE_CORE_FUNC(CreatePipelineLayout);
     GET_DEVICE_CORE_FUNC(CreateDescriptorSetLayout);
