@@ -148,6 +148,21 @@ Result LegacyQueueSchedulerVK::Poll(bool quiesce) {
         auto& completion = m_InFlight[i];
         VkResult status = vk.GetFenceStatus(m_Device, completion->fence);
 
+#if NRI_COMPATIBILITY_POLL_LOSS_MODE
+        // Fault simulation only: wait for actual native completion before
+        // returning a synthetic loss. Mode 2 withholds logical completion until
+        // the separate submit OOM has been observed, then exercises escalation.
+        if (status == VK_SUCCESS && !m_TestPollLoss) {
+            if (NRI_COMPATIBILITY_POLL_LOSS_MODE == 2 && m_Failure == Result::SUCCESS)
+                status = VK_NOT_READY;
+            else {
+                m_TestPollLoss = true;
+                status = VK_ERROR_DEVICE_LOST;
+                NRI_REPORT_INFO(&m_Device, "NRI_LEGACY_POLL_FAULT {\"mode\":%u,\"native_completed\":true}", NRI_COMPATIBILITY_POLL_LOSS_MODE);
+            }
+        }
+#endif
+
         if (status == VK_NOT_READY) {
             i++;
             continue;

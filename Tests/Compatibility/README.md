@@ -818,5 +818,29 @@ one specific injected callback separately from unexpected validation errors.
 
 Native-modern/emulated-timeline and extension-free 1.1 profiles are required.
 This covers loss returned from submission, pending rejection and waiter behavior.
-Loss returned by native completion polling, promotion of an earlier OOM to loss,
-and genuine driver-loss recovery still require separate evidence.
+The polling variants below cover the additional controlled paths; genuine
+driver-loss recovery still requires separate evidence.
+
+### Controlled completion-poll loss and error priority
+
+The same scheduler-loss fixture accepts POLL_LOSS_MODE=1 or2 with NO_TIMELINE=ON
+and SUBMIT_DEVICE_LOST=OFF. Mode1 requires FAIL_SUBMIT=0. It substitutes one
+DEVICE_LOST result only after the actual native fence reports SUCCESS. Two host
+wait calls terminate and the logical completion stays zero until a later drain
+observes the native completion again. Subsequent submissions stay rejected.
+
+Mode2 requires FAIL_SUBMIT=2. Before that separate OOM, the test hook withholds
+logical completion by substituting NOT_READY for a successful native poll. After
+OOM is observable through submission and waiter behavior, the first quiescing
+poll substitutes DEVICE_LOST. The fixture verifies that loss supersedes OOM,
+reports each distinct failure once, and still does not publish a completion from
+the error. A subsequent drain retires the already-completed native copy while
+retaining DEVICE_LOST. Full copy data is checked after confirmed completion.
+
+NRI_LEGACY_POLL_FAULT records exactly one substitution and confirms that native
+completion preceded it. These private hooks are excluded from normal builds.
+They intentionally control completion observation for deterministic error-path
+tests; they are not real driver return values or proof of asynchronous physical
+device loss. Both modes run on modern/emulated-timeline and extension-free 1.1.
+All profile/fault switches, including integer POLL_LOSS_MODE, must return to zero
+or OFF after qualification. Independent native-idle cleanup remains in place.

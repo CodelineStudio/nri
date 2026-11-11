@@ -27,15 +27,22 @@ struct Fixture {
     nri::Buffer* readback = nullptr;
     VkDevice nativeDevice = VK_NULL_HANDLE;
     PFN_vkDeviceWaitIdle nativeIdle = nullptr;
-    std::atomic<uint32_t> errors{0}, warnings{0}, expectedErrors{0}, started{0}, returned{0};
+    std::atomic<uint32_t> errors{0}, warnings{0}, expectedErrors{0}, lossReports{0}, oomReports{0}, started{0}, returned{0};
     uint32_t deviceId = 0, driver = 0;
-    bool ready = false, pendingAccepted = false, rejected = false, drained = false, exact = false;
+    bool ready = false, pendingAccepted = false, rejected = false, drained = false, exact = false, pollObserved = false, promoted = false;
 
     static void NRI_CALL Message(nri::Message severity, const char* file, uint32_t line, const char* text, void* user) {
         auto& f = *(Fixture*)user;
 
-        if (severity == nri::Message::ERROR && text && std::strstr(text, "Legacy queue scheduler: injected QueueSubmit failed (-4)"))
+        if (severity == nri::Message::ERROR && text &&
+            ((NRI_COMPATIBILITY_POLL_LOSS_MODE == 0 && std::strstr(text, "Legacy queue scheduler: injected QueueSubmit failed (-4)")) ||
+             (NRI_COMPATIBILITY_POLL_LOSS_MODE != 0 && std::strstr(text, "Legacy queue scheduler: GetFenceStatus failed (-4)")))) {
             f.expectedErrors++;
+            f.lossReports++;
+        } else if (severity == nri::Message::ERROR && NRI_COMPATIBILITY_POLL_LOSS_MODE == 2 && text && std::strstr(text, "Legacy queue scheduler: injected QueueSubmit failed (-2)")) {
+            f.expectedErrors++;
+            f.oomReports++;
+        }
         else if (severity == nri::Message::ERROR)
             f.errors++;
         else if (severity == nri::Message::WARNING)
@@ -120,7 +127,7 @@ struct Fixture {
             Check(core.CreateCommittedBuffer(*device, nri::MemoryLocation::HOST_READBACK, 0, buffer, readback) == nri::Result::SUCCESS, "readback");
     }
 
-    bool Run() {
+    bool StartCopy() {
         auto* values = (uint32_t*)core.MapBuffer(*upload, 0, 4096);
 
         if (!Check(values != nullptr, "map upload"))
@@ -157,6 +164,13 @@ struct Fixture {
         copy.signalFenceNum = 1;
 
         if (!Check(core.QueueSubmit(*queues[1], copy) == nri::Result::SUCCESS, "first native submission"))
+            return false;
+
+        return true;
+    }
+
+    bool Run() {
+        if (!StartCopy())
             return false;
 
         nri::FenceSubmitDesc gate = {fences[1], 9, nri::StageBits::ALL};
@@ -203,6 +217,10 @@ struct Fixture {
         if (!Check(rejected && drained && core.GetFenceValue(*fences[0]) == 1 && core.GetFenceValue(*fences[1]) == 0 && core.GetFenceValue(*fences[2]) == 0, "sticky loss and confirmed completion only"))
             return false;
 
+        return VerifyCopy() && Check(expectedErrors.load() == 1 && errors.load() == 0, "accepted output survives later rejection");
+    }
+
+    bool VerifyCopy() {
         const auto* result = (const uint32_t*)core.MapBuffer(*readback, 0, 4096);
 
         if (!Check(result != nullptr, "read completed copy"))
@@ -215,7 +233,54 @@ struct Fixture {
 
         core.UnmapBuffer(*readback);
 
-        return Check(exact && expectedErrors.load() == 1 && errors.load() == 0, "accepted output survives later rejection");
+        return Check(exact, "exact accepted copy output");
+    }
+
+    bool RunPollLoss() {
+        if (!StartCopy())
+            return false;
+
+        nri::QueueSubmitDesc empty = {};
+
+        if (NRI_COMPATIBILITY_POLL_LOSS_MODE == 2) {
+            if (!Check(core.QueueSubmit(*queues[1], empty) == nri::Result::OUT_OF_MEMORY, "initial submission OOM"))
+                return false;
+        }
+
+        std::array<std::thread, 2> waiters;
+
+        for (auto& waiter : waiters) {
+            waiter = std::thread([&] {
+                core.Wait(*fences[0], 1);
+                returned++;
+            });
+        }
+
+        for (auto& waiter : waiters)
+            waiter.join();
+
+        nri::Result initial = NRI_COMPATIBILITY_POLL_LOSS_MODE == 2 ? nri::Result::OUT_OF_MEMORY : nri::Result::DEVICE_LOST;
+
+        if (!Check(returned.load() == 2 && core.GetFenceValue(*fences[0]) == 0 && core.QueueSubmit(*queues[1], empty) == initial, "failed polling does not publish completion"))
+            return false;
+
+        nri::Result firstDrain = core.DeviceWaitIdle(device);
+        pollObserved = firstDrain == nri::Result::DEVICE_LOST && lossReports.load() == 1;
+
+        if (NRI_COMPATIBILITY_POLL_LOSS_MODE == 2) {
+            promoted = pollObserved && oomReports.load() == 1 && core.GetFenceValue(*fences[0]) == 0;
+
+            if (!Check(promoted, "poll loss supersedes prior OOM without claiming completion"))
+                return false;
+        }
+
+        rejected = core.QueueSubmit(*queues[1], empty) == nri::Result::DEVICE_LOST;
+        drained = core.DeviceWaitIdle(device) == nri::Result::DEVICE_LOST;
+
+        if (!Check(pollObserved && rejected && drained && core.GetFenceValue(*fences[0]) == 1, "native-completed copy retires while failure stays sticky"))
+            return false;
+
+        return VerifyCopy() && Check(expectedErrors.load() == (NRI_COMPATIBILITY_POLL_LOSS_MODE == 2 ? 2u : 1u) && errors.load() == 0, "expected fault reports only");
     }
 
     bool Cleanup() {
@@ -254,7 +319,7 @@ struct Fixture {
 } // namespace
 
 int main(int argc, char** argv) {
-    if (NRI_COMPATIBILITY_FAIL_SUBMIT != 2 || !NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST) {
+    if (NRI_COMPATIBILITY_POLL_LOSS_MODE == 0 && (NRI_COMPATIBILITY_FAIL_SUBMIT != 2 || !NRI_COMPATIBILITY_SUBMIT_DEVICE_LOST)) {
         std::fprintf(stderr, "Requires FAIL_SUBMIT=2 and SUBMIT_DEVICE_LOST=ON\n");
 
         return 2;
@@ -271,10 +336,10 @@ int main(int argc, char** argv) {
     }
 
     Fixture f;
-    bool passed = f.Initialize(validation) && f.Run();
+    bool passed = f.Initialize(validation) && (NRI_COMPATIBILITY_POLL_LOSS_MODE ? f.RunPollLoss() : f.Run());
     passed = f.Cleanup() && passed && f.errors.load() == 0 && f.warnings.load() == 0;
-    std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_scheduler_loss\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"expected_errors\":%u,\"returned_waiters\":%u,\"pending_accepted\":%s,\"later_rejected\":%s,\"failure_drained\":%s,\"accepted_copy_exact\":%s,\"legacy_sync_forced\":%s}\n",
-        passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, f.deviceId, f.driver, f.errors.load(), f.warnings.load(), f.expectedErrors.load(), f.returned.load(), f.pendingAccepted ? "true" : "false", f.rejected ? "true" : "false", f.drained ? "true" : "false", f.exact ? "true" : "false", NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false");
+    std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_scheduler_loss\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"expected_errors\":%u,\"returned_waiters\":%u,\"poll_loss_mode\":%u,\"loss_reports\":%u,\"oom_reports\":%u,\"poll_observed\":%s,\"loss_promoted\":%s,\"pending_accepted\":%s,\"later_rejected\":%s,\"failure_drained\":%s,\"accepted_copy_exact\":%s,\"legacy_sync_forced\":%s}\n",
+        passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, f.deviceId, f.driver, f.errors.load(), f.warnings.load(), f.expectedErrors.load(), f.returned.load(), NRI_COMPATIBILITY_POLL_LOSS_MODE, f.lossReports.load(), f.oomReports.load(), f.pollObserved ? "true" : "false", f.promoted ? "true" : "false", f.pendingAccepted ? "true" : "false", f.rejected ? "true" : "false", f.drained ? "true" : "false", f.exact ? "true" : "false", NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false");
 
     return std::fflush(stdout) == 0 && passed ? 0 : 1;
 }

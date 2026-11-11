@@ -123,8 +123,16 @@ def main():
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
                 if args.fixture == 'nri_vulkan_scheduler_loss':
                     f = receipt['fixture']
-                    if f.get('expected_errors') != 1 or f.get('returned_waiters') != 2 or not all(f.get(k) is True for k in ('pending_accepted', 'later_rejected', 'failure_drained', 'accepted_copy_exact')):
+                    mode = f.get('poll_loss_mode', 0)
+                    if mode not in (0, 1, 2) or f.get('expected_errors') != (2 if mode == 2 else 1) or f.get('returned_waiters') != 2 or not all(f.get(k) is True for k in ('later_rejected', 'failure_drained', 'accepted_copy_exact')):
                         raise ValueError('Scheduler loss propagation coverage incomplete')
+                    if mode == 0 and f.get('pending_accepted') is not True:
+                        raise ValueError('Deferred submission coverage missing')
+                    if mode:
+                        faults = [json.loads(line.split('NRI_LEGACY_POLL_FAULT ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_LEGACY_POLL_FAULT ' in line]
+                        if faults != [{'mode': mode, 'native_completed': True}] or f.get('poll_observed') is not True or f.get('loss_reports') != 1 or f.get('oom_reports') != (1 if mode == 2 else 0) or f.get('loss_promoted') is not (mode == 2):
+                            raise ValueError('Native poll loss or escalation coverage missing')
+                        receipt['scheduler_poll_faults'] = faults
                     drains = [json.loads(line.split('NRI_LEGACY_FAILURE_DRAIN ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_LEGACY_FAILURE_DRAIN ' in line]
                     if not drains or any(r != {'pending_packets': 0, 'in_flight': 0} for r in drains):
                         raise ValueError('Scheduler failure did not retire accepted work')

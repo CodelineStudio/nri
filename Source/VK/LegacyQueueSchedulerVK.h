@@ -97,6 +97,9 @@ private:
 #if NRI_COMPATIBILITY_FAIL_SUBMIT
     uint64_t m_SubmitCount = 0;
 #endif
+#if NRI_COMPATIBILITY_POLL_LOSS_MODE
+    bool m_TestPollLoss = false;
+#endif
 };
 
 } // namespace nri
