@@ -61,6 +61,24 @@ semaphores remain native. Configure OFF and rerun for the modern comparison.
 Build `NRILegacySynchronizationTests` and run CTest for Release-safe scope
 conversion checks, including split stage/access bits and unknown upper bits.
 
+`-DNRI_COMPATIBILITY_INDIVIDUAL_FEATURES=ON` exercises the pre-1.2 individual
+feature/property structures instead of Vulkan11/12 aggregates. The latter were
+introduced in 1.2 despite their names. Optional promoted features use explicitly
+enabled extension structures; queried results are normalized into local values.
+These local aggregates are never linked into the individual query/create chains.
+`--require-individual-features` checks actual chain receipts for the required
+core1.1 structures, missing/duplicate records and forbidden aggregate structures.
+
+`-DNRI_COMPATIBILITY_API_MINOR=2` or `3` caps the test instance API; `0` (default)
+keeps native negotiation. The runner's `--require-api-minor` verifies the actual
+effective device API. These are independent controls: combine individual
+structures, API2 and forced legacy synchronization, then test all controls off
+for the modern regression. **Device admission is still Vulkan1.2+**; a capped
+modern device does not establish older-driver compatibility. The core-only
+subgroupBroadcastDynamicId feature is disabled on the individual path, and
+framebufferIntegerColorSampleCounts remains unknown because it has no pre-1.2
+query equivalent. Format-specific image queries remain authoritative.
+
 The legacy path merges barrier execution scopes, expands split scopes to their
 legacy equivalents, and uses conservative all-commands / memory-access scopes
 for extension bits with no legacy spelling. Queue signals use the whole legacy

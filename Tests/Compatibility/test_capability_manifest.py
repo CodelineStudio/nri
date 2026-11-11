@@ -2,7 +2,7 @@ import copy
 import json
 import unittest
 
-from capability_manifest import parse_manifest
+from capability_manifest import parse_manifest, require_individual_features
 
 
 class ManifestTests(unittest.TestCase):
@@ -42,6 +42,38 @@ class ManifestTests(unittest.TestCase):
 
     def test_string_false_is_not_validation_activation(self):
         self.records[0]['native_validation_active'] = 'false'
+        with self.assertRaises(ValueError):
+            parse_manifest(self.encode(self.records))
+
+    def add_individual_chains(self):
+        for kind, types in (
+            ('feature', [1000083000, 1000053001, 1000120000, 1000145001, 1000156004, 1000063000]),
+            ('property', [1000071004, 1000094000, 1000117000, 1000053002, 1000145002, 1000168000]),
+        ):
+            self.records.append(dict(kind=kind + '_chain', individual=1, structure_count=len(types)))
+            self.records.extend(dict(kind=kind + '_structure', type=value) for value in types)
+
+    def test_individual_structure_chain_acceptance(self):
+        self.add_individual_chains()
+        require_individual_features(parse_manifest(self.encode(self.records)))
+
+    def test_missing_chain_record_is_not_individual_qualification(self):
+        with self.assertRaises(ValueError):
+            require_individual_features(parse_manifest(self.encode(self.records)))
+
+    def test_new_aggregate_or_missing_core_structure_rejected(self):
+        self.add_individual_chains()
+        for replacement in (49, 51, 123456):
+            records = copy.deepcopy(self.records)
+            next(entry for entry in records if entry['kind'] == 'feature_structure')['type'] = replacement
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                require_individual_features(parse_manifest(self.encode(records)))
+
+    def test_truncated_or_duplicate_chain_rejected(self):
+        self.add_individual_chains()
+        with self.assertRaises(ValueError):
+            parse_manifest(self.encode(self.records[:-1]))
+        self.records[-1]['type'] = self.records[-2]['type']
         with self.assertRaises(ValueError):
             parse_manifest(self.encode(self.records))
 

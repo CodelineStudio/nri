@@ -9,7 +9,7 @@ import platform
 import subprocess
 import sys
 import time
-from capability_manifest import parse_manifest
+from capability_manifest import parse_manifest, require_individual_features
 
 
 def main():
@@ -21,6 +21,8 @@ def main():
     parser.add_argument("--validation", action="store_true")
     parser.add_argument("--require-native-validation", action="store_true")
     parser.add_argument("--require-legacy-sync", action="store_true")
+    parser.add_argument("--require-individual-features", action="store_true")
+    parser.add_argument("--require-api-minor", type=int, choices=(2, 3, 4))
     args = parser.parse_args()
     if not 0 < args.timeout <= 600 or args.adapter < 0:
         parser.error("timeout must be in (0,600] seconds and adapter must be nonnegative")
@@ -67,6 +69,10 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.require_individual_features:
+                    require_individual_features(manifest)
+                if args.require_api_minor is not None and manifest['device']['effective_minor'] != args.require_api_minor:
+                    raise ValueError("Required effective API minor version is not active")
                 if args.require_legacy_sync and (manifest["device"]["synchronization2"] != 0 or not receipt["fixture"].get("legacy_sync_forced")):
                     raise ValueError("Required forced legacy synchronization is not active")
                 active = manifest["instance"]["native_validation_active"]

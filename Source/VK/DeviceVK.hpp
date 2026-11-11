@@ -582,6 +582,35 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
     APPEND_EXT(true, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
 #endif
 
+    bool useIndividualFeatures = m_MinorVersion < 2;
+#if NRI_COMPATIBILITY_INDIVIDUAL_FEATURES
+    useIndividualFeatures = true;
+#endif
+
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, desiredDeviceExts), VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, desiredDeviceExts), VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME, desiredDeviceExts), VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME, desiredDeviceExts), VK_EXT_SCALAR_BLOCK_LAYOUT_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME, desiredDeviceExts), VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_8BIT_STORAGE_EXTENSION_NAME, desiredDeviceExts), VK_KHR_8BIT_STORAGE_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME, desiredDeviceExts), VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME, desiredDeviceExts), VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_IMAGELESS_FRAMEBUFFER_EXTENSION_NAME, desiredDeviceExts), VK_KHR_IMAGELESS_FRAMEBUFFER_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME, desiredDeviceExts), VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_EXTENSION_NAME, desiredDeviceExts), VK_KHR_SEPARATE_DEPTH_STENCIL_LAYOUTS_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME, desiredDeviceExts), VK_KHR_SHADER_ATOMIC_INT64_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME, desiredDeviceExts), VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME, desiredDeviceExts), VK_KHR_SHADER_SUBGROUP_EXTENDED_TYPES_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME, desiredDeviceExts), VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME, desiredDeviceExts), VK_KHR_UNIFORM_BUFFER_STANDARD_LAYOUT_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME, desiredDeviceExts), VK_KHR_VULKAN_MEMORY_MODEL_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME, desiredDeviceExts), VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME);
+
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME, desiredDeviceExts), VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME, desiredDeviceExts), VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME, desiredDeviceExts), VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME);
+    APPEND_EXT(useIndividualFeatures && !IsExtensionSupported(VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME, desiredDeviceExts), VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME);
+
     APPEND_EXT(m_MinorVersion < 3, VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME);
     APPEND_EXT(m_MinorVersion < 3, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
     APPEND_EXT(m_MinorVersion < 3, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
@@ -932,11 +961,68 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
     VkPhysicalDeviceFeatures2 features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     PNEXTCHAIN_DECLARE(features.pNext);
 
-    VkPhysicalDeviceVulkan11Features features11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
-    PNEXTCHAIN_APPEND_STRUCT(features11);
+    bool useIndividualFeatures = m_MinorVersion < 2;
+#if NRI_COMPATIBILITY_INDIVIDUAL_FEATURES
+    NRI_RETURN_ON_FAILURE(this, !isWrapper, Result::UNSUPPORTED, "Individual feature fixture requires an NRI-created device");
+    useIndividualFeatures = true;
+#endif
 
+    VkPhysicalDeviceVulkan11Features features11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
     VkPhysicalDeviceVulkan12Features features12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-    PNEXTCHAIN_APPEND_STRUCT(features12);
+
+    if (!useIndividualFeatures) {
+        PNEXTCHAIN_APPEND_STRUCT(features11);
+        PNEXTCHAIN_APPEND_STRUCT(features12);
+    }
+
+    // The aggregate Vulkan11/12 structures were introduced in Vulkan 1.2.
+    // Individual structures stay alive through both query and device creation.
+    VkPhysicalDevice16BitStorageFeatures individual16BitStorageFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES};
+
+    if (useIndividualFeatures)
+        PNEXTCHAIN_APPEND_STRUCT(individual16BitStorageFeatures);
+
+    VkPhysicalDeviceMultiviewFeatures individualMultiviewFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES};
+
+    if (useIndividualFeatures)
+        PNEXTCHAIN_APPEND_STRUCT(individualMultiviewFeatures);
+
+    VkPhysicalDeviceVariablePointersFeatures individualVariablePointersFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTERS_FEATURES};
+
+    if (useIndividualFeatures)
+        PNEXTCHAIN_APPEND_STRUCT(individualVariablePointersFeatures);
+
+    VkPhysicalDeviceProtectedMemoryFeatures individualProtectedMemoryFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROTECTED_MEMORY_FEATURES};
+
+    if (useIndividualFeatures)
+        PNEXTCHAIN_APPEND_STRUCT(individualProtectedMemoryFeatures);
+
+    VkPhysicalDeviceSamplerYcbcrConversionFeatures individualSamplerYcbcrConversionFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_YCBCR_CONVERSION_FEATURES};
+
+    if (useIndividualFeatures)
+        PNEXTCHAIN_APPEND_STRUCT(individualSamplerYcbcrConversionFeatures);
+
+    VkPhysicalDeviceShaderDrawParametersFeatures individualShaderDrawParametersFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES};
+
+    if (useIndividualFeatures)
+        PNEXTCHAIN_APPEND_STRUCT(individualShaderDrawParametersFeatures);
+
+    VkPhysicalDevice8BitStorageFeatures storage8Features = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_8BIT_STORAGE_FEATURES};
+
+    if (useIndividualFeatures && IsExtensionSupported(VK_KHR_8BIT_STORAGE_EXTENSION_NAME, desiredDeviceExts))
+        PNEXTCHAIN_APPEND_STRUCT(storage8Features);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, ShaderAtomicInt64, SHADER_ATOMIC_INT64);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, ShaderFloat16Int8, SHADER_FLOAT16_INT8);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, EXT, DescriptorIndexing, DESCRIPTOR_INDEXING);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, EXT, ScalarBlockLayout, SCALAR_BLOCK_LAYOUT);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, ImagelessFramebuffer, IMAGELESS_FRAMEBUFFER);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, UniformBufferStandardLayout, UNIFORM_BUFFER_STANDARD_LAYOUT);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, ShaderSubgroupExtendedTypes, SHADER_SUBGROUP_EXTENDED_TYPES);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, SeparateDepthStencilLayouts, SEPARATE_DEPTH_STENCIL_LAYOUTS);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, EXT, HostQueryReset, HOST_QUERY_RESET);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, TimelineSemaphore, TIMELINE_SEMAPHORE);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, BufferDeviceAddress, BUFFER_DEVICE_ADDRESS);
+    PNEXTCHAIN_APPEND_FEATURES(useIndividualFeatures, KHR, VulkanMemoryModel, VULKAN_MEMORY_MODEL);
 
     VkPhysicalDeviceVulkan13Features features13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     if (m_MinorVersion >= 3)
@@ -1006,6 +1092,70 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
         PNEXTCHAIN_APPEND_STRUCT(DeviceFaultFeatures);
 
     m_VK.GetPhysicalDeviceFeatures2(m_PhysicalDevice, &features);
+
+    if (useIndividualFeatures) {
+        // Normalize into local aggregates only; never put them on the 1.1 chain.
+        features11.storageBuffer16BitAccess = individual16BitStorageFeatures.storageBuffer16BitAccess;
+        features11.uniformAndStorageBuffer16BitAccess = individual16BitStorageFeatures.uniformAndStorageBuffer16BitAccess;
+        features11.storagePushConstant16 = individual16BitStorageFeatures.storagePushConstant16;
+        features11.storageInputOutput16 = individual16BitStorageFeatures.storageInputOutput16;
+        features11.multiview = individualMultiviewFeatures.multiview;
+        features11.multiviewGeometryShader = individualMultiviewFeatures.multiviewGeometryShader;
+        features11.multiviewTessellationShader = individualMultiviewFeatures.multiviewTessellationShader;
+        features11.variablePointersStorageBuffer = individualVariablePointersFeatures.variablePointersStorageBuffer;
+        features11.variablePointers = individualVariablePointersFeatures.variablePointers;
+        features11.protectedMemory = individualProtectedMemoryFeatures.protectedMemory;
+        features11.samplerYcbcrConversion = individualSamplerYcbcrConversionFeatures.samplerYcbcrConversion;
+        features11.shaderDrawParameters = individualShaderDrawParametersFeatures.shaderDrawParameters;
+        features12.storageBuffer8BitAccess = storage8Features.storageBuffer8BitAccess;
+        features12.uniformAndStorageBuffer8BitAccess = storage8Features.uniformAndStorageBuffer8BitAccess;
+        features12.storagePushConstant8 = storage8Features.storagePushConstant8;
+        features12.shaderBufferInt64Atomics = ShaderAtomicInt64Features.shaderBufferInt64Atomics;
+        features12.shaderSharedInt64Atomics = ShaderAtomicInt64Features.shaderSharedInt64Atomics;
+        features12.shaderFloat16 = ShaderFloat16Int8Features.shaderFloat16;
+        features12.shaderInt8 = ShaderFloat16Int8Features.shaderInt8;
+        features12.shaderInputAttachmentArrayDynamicIndexing = DescriptorIndexingFeatures.shaderInputAttachmentArrayDynamicIndexing;
+        features12.shaderUniformTexelBufferArrayDynamicIndexing = DescriptorIndexingFeatures.shaderUniformTexelBufferArrayDynamicIndexing;
+        features12.shaderStorageTexelBufferArrayDynamicIndexing = DescriptorIndexingFeatures.shaderStorageTexelBufferArrayDynamicIndexing;
+        features12.shaderUniformBufferArrayNonUniformIndexing = DescriptorIndexingFeatures.shaderUniformBufferArrayNonUniformIndexing;
+        features12.shaderSampledImageArrayNonUniformIndexing = DescriptorIndexingFeatures.shaderSampledImageArrayNonUniformIndexing;
+        features12.shaderStorageBufferArrayNonUniformIndexing = DescriptorIndexingFeatures.shaderStorageBufferArrayNonUniformIndexing;
+        features12.shaderStorageImageArrayNonUniformIndexing = DescriptorIndexingFeatures.shaderStorageImageArrayNonUniformIndexing;
+        features12.shaderInputAttachmentArrayNonUniformIndexing = DescriptorIndexingFeatures.shaderInputAttachmentArrayNonUniformIndexing;
+        features12.shaderUniformTexelBufferArrayNonUniformIndexing = DescriptorIndexingFeatures.shaderUniformTexelBufferArrayNonUniformIndexing;
+        features12.shaderStorageTexelBufferArrayNonUniformIndexing = DescriptorIndexingFeatures.shaderStorageTexelBufferArrayNonUniformIndexing;
+        features12.descriptorBindingUniformBufferUpdateAfterBind = DescriptorIndexingFeatures.descriptorBindingUniformBufferUpdateAfterBind;
+        features12.descriptorBindingSampledImageUpdateAfterBind = DescriptorIndexingFeatures.descriptorBindingSampledImageUpdateAfterBind;
+        features12.descriptorBindingStorageImageUpdateAfterBind = DescriptorIndexingFeatures.descriptorBindingStorageImageUpdateAfterBind;
+        features12.descriptorBindingStorageBufferUpdateAfterBind = DescriptorIndexingFeatures.descriptorBindingStorageBufferUpdateAfterBind;
+        features12.descriptorBindingUniformTexelBufferUpdateAfterBind = DescriptorIndexingFeatures.descriptorBindingUniformTexelBufferUpdateAfterBind;
+        features12.descriptorBindingStorageTexelBufferUpdateAfterBind = DescriptorIndexingFeatures.descriptorBindingStorageTexelBufferUpdateAfterBind;
+        features12.descriptorBindingUpdateUnusedWhilePending = DescriptorIndexingFeatures.descriptorBindingUpdateUnusedWhilePending;
+        features12.descriptorBindingPartiallyBound = DescriptorIndexingFeatures.descriptorBindingPartiallyBound;
+        features12.descriptorBindingVariableDescriptorCount = DescriptorIndexingFeatures.descriptorBindingVariableDescriptorCount;
+        features12.runtimeDescriptorArray = DescriptorIndexingFeatures.runtimeDescriptorArray;
+        features12.scalarBlockLayout = ScalarBlockLayoutFeatures.scalarBlockLayout;
+        features12.imagelessFramebuffer = ImagelessFramebufferFeatures.imagelessFramebuffer;
+        features12.uniformBufferStandardLayout = UniformBufferStandardLayoutFeatures.uniformBufferStandardLayout;
+        features12.shaderSubgroupExtendedTypes = ShaderSubgroupExtendedTypesFeatures.shaderSubgroupExtendedTypes;
+        features12.separateDepthStencilLayouts = SeparateDepthStencilLayoutsFeatures.separateDepthStencilLayouts;
+        features12.hostQueryReset = HostQueryResetFeatures.hostQueryReset;
+        features12.timelineSemaphore = TimelineSemaphoreFeatures.timelineSemaphore;
+        features12.bufferDeviceAddress = BufferDeviceAddressFeatures.bufferDeviceAddress;
+        features12.bufferDeviceAddressCaptureReplay = BufferDeviceAddressFeatures.bufferDeviceAddressCaptureReplay;
+        features12.bufferDeviceAddressMultiDevice = BufferDeviceAddressFeatures.bufferDeviceAddressMultiDevice;
+        features12.vulkanMemoryModel = VulkanMemoryModelFeatures.vulkanMemoryModel;
+        features12.vulkanMemoryModelDeviceScope = VulkanMemoryModelFeatures.vulkanMemoryModelDeviceScope;
+        features12.vulkanMemoryModelAvailabilityVisibilityChains = VulkanMemoryModelFeatures.vulkanMemoryModelAvailabilityVisibilityChains;
+        features12.samplerMirrorClampToEdge = IsExtensionSupported(VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME, desiredDeviceExts);
+        features12.drawIndirectCount = IsExtensionSupported(VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME, desiredDeviceExts);
+        features12.descriptorIndexing = IsExtensionSupported(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, desiredDeviceExts);
+        features12.samplerFilterMinmax = IsExtensionSupported(VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME, desiredDeviceExts);
+        features12.shaderOutputViewportIndex = IsExtensionSupported(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME, desiredDeviceExts);
+        features12.shaderOutputLayer = IsExtensionSupported(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME, desiredDeviceExts);
+        // This core-1.2 feature has no pre-1.2 extension equivalent.
+        features12.subgroupBroadcastDynamicId = VK_FALSE;
+    }
 
     if (m_MinorVersion < 3) {
         features13.dynamicRendering = DynamicRenderingFeatures.dynamicRendering;
@@ -1124,6 +1274,16 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
             NRI_RETURN_ON_BAD_VKRESULT(this, vkResult, "vkCreateDevice");
 
 #if NRI_COMPATIBILITY_DIAGNOSTICS
+            uint32_t featureStructureCount = 0;
+
+            for (const VkBaseInStructure* node = (const VkBaseInStructure*)&features; node; node = node->pNext) {
+                NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"feature_structure\",\"type\":%u}", uint32_t(node->sType));
+                ++featureStructureCount;
+            }
+            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"feature_chain\",\"individual\":%u,\"structure_count\":%u}", uint32_t(useIndividualFeatures), featureStructureCount);
+#endif
+
+#if NRI_COMPATIBILITY_DIAGNOSTICS
             VkPhysicalDeviceProperties2 observedProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
             m_VK.GetPhysicalDeviceProperties2(m_PhysicalDevice, &observedProperties);
             NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"device\",\"physical_api\":%u,\"effective_minor\":%u,\"timeline\":%u,\"synchronization2\":%u,\"dynamic_rendering\":%u,\"extension_count\":%u}",
@@ -1230,10 +1390,67 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
         PNEXTCHAIN_APPEND_STRUCT(propsExtra);
 
         VkPhysicalDeviceVulkan11Properties props11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES};
-        PNEXTCHAIN_APPEND_STRUCT(props11);
-
         VkPhysicalDeviceVulkan12Properties props12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES};
-        PNEXTCHAIN_APPEND_STRUCT(props12);
+
+        if (!useIndividualFeatures) {
+            PNEXTCHAIN_APPEND_STRUCT(props11);
+            PNEXTCHAIN_APPEND_STRUCT(props12);
+        }
+
+        VkPhysicalDeviceIDProperties individualIDProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+
+        if (useIndividualFeatures)
+            PNEXTCHAIN_APPEND_STRUCT(individualIDProps);
+
+        VkPhysicalDeviceSubgroupProperties individualSubgroupProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
+
+        if (useIndividualFeatures)
+            PNEXTCHAIN_APPEND_STRUCT(individualSubgroupProps);
+
+        VkPhysicalDevicePointClippingProperties individualPointClippingProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_POINT_CLIPPING_PROPERTIES};
+
+        if (useIndividualFeatures)
+            PNEXTCHAIN_APPEND_STRUCT(individualPointClippingProps);
+
+        VkPhysicalDeviceMultiviewProperties individualMultiviewProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES};
+
+        if (useIndividualFeatures)
+            PNEXTCHAIN_APPEND_STRUCT(individualMultiviewProps);
+
+        VkPhysicalDeviceProtectedMemoryProperties individualProtectedMemoryProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROTECTED_MEMORY_PROPERTIES};
+
+        if (useIndividualFeatures)
+            PNEXTCHAIN_APPEND_STRUCT(individualProtectedMemoryProps);
+
+        VkPhysicalDeviceDriverProperties individualDriverProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+
+        if (useIndividualFeatures && IsExtensionSupported(VK_KHR_DRIVER_PROPERTIES_EXTENSION_NAME, desiredDeviceExts))
+            PNEXTCHAIN_APPEND_STRUCT(individualDriverProps);
+
+        VkPhysicalDeviceFloatControlsProperties individualFloatControlsProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FLOAT_CONTROLS_PROPERTIES};
+
+        if (useIndividualFeatures && IsExtensionSupported(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME, desiredDeviceExts))
+            PNEXTCHAIN_APPEND_STRUCT(individualFloatControlsProps);
+
+        VkPhysicalDeviceDescriptorIndexingProperties individualDescriptorIndexingProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES};
+
+        if (useIndividualFeatures && IsExtensionSupported(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME, desiredDeviceExts))
+            PNEXTCHAIN_APPEND_STRUCT(individualDescriptorIndexingProps);
+
+        VkPhysicalDeviceDepthStencilResolveProperties individualDepthStencilResolveProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DEPTH_STENCIL_RESOLVE_PROPERTIES};
+
+        if (useIndividualFeatures && IsExtensionSupported(VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME, desiredDeviceExts))
+            PNEXTCHAIN_APPEND_STRUCT(individualDepthStencilResolveProps);
+
+        VkPhysicalDeviceSamplerFilterMinmaxProperties individualSamplerFilterMinmaxProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES};
+
+        if (useIndividualFeatures && IsExtensionSupported(VK_EXT_SAMPLER_FILTER_MINMAX_EXTENSION_NAME, desiredDeviceExts))
+            PNEXTCHAIN_APPEND_STRUCT(individualSamplerFilterMinmaxProps);
+
+        VkPhysicalDeviceTimelineSemaphoreProperties individualTimelineSemaphoreProps = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_PROPERTIES};
+
+        if (useIndividualFeatures && IsExtensionSupported(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME, desiredDeviceExts))
+            PNEXTCHAIN_APPEND_STRUCT(individualTimelineSemaphoreProps);
 
         VkPhysicalDeviceVulkan13Properties props13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES};
         if (m_MinorVersion >= 3)
@@ -1269,6 +1486,87 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
         PNEXTCHAIN_APPEND_PROPS(true, EXT, SampleLocations, SAMPLE_LOCATIONS);
 
         m_VK.GetPhysicalDeviceProperties2(m_PhysicalDevice, &props);
+
+#if NRI_COMPATIBILITY_DIAGNOSTICS
+        uint32_t propertyStructureCount = 0;
+
+        for (const VkBaseInStructure* node = (const VkBaseInStructure*)&props; node; node = node->pNext) {
+            NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"property_structure\",\"type\":%u}", uint32_t(node->sType));
+            ++propertyStructureCount;
+        }
+        NRI_REPORT_INFO(this, "NRI_COMPATIBILITY {\"kind\":\"property_chain\",\"individual\":%u,\"structure_count\":%u}", uint32_t(useIndividualFeatures), propertyStructureCount);
+#endif
+
+        if (useIndividualFeatures) {
+            memcpy(props11.deviceUUID, individualIDProps.deviceUUID, sizeof(props11.deviceUUID));
+            memcpy(props11.driverUUID, individualIDProps.driverUUID, sizeof(props11.driverUUID));
+            memcpy(props11.deviceLUID, individualIDProps.deviceLUID, sizeof(props11.deviceLUID));
+            props11.deviceNodeMask = individualIDProps.deviceNodeMask;
+            props11.deviceLUIDValid = individualIDProps.deviceLUIDValid;
+            props11.subgroupSize = individualSubgroupProps.subgroupSize;
+            props11.subgroupSupportedStages = individualSubgroupProps.supportedStages;
+            props11.subgroupSupportedOperations = individualSubgroupProps.supportedOperations;
+            props11.subgroupQuadOperationsInAllStages = individualSubgroupProps.quadOperationsInAllStages;
+            props11.pointClippingBehavior = individualPointClippingProps.pointClippingBehavior;
+            props11.maxMultiviewViewCount = individualMultiviewProps.maxMultiviewViewCount;
+            props11.maxMultiviewInstanceIndex = individualMultiviewProps.maxMultiviewInstanceIndex;
+            props11.protectedNoFault = individualProtectedMemoryProps.protectedNoFault;
+            props12.driverID = individualDriverProps.driverID;
+            memcpy(props12.driverName, individualDriverProps.driverName, sizeof(props12.driverName));
+            memcpy(props12.driverInfo, individualDriverProps.driverInfo, sizeof(props12.driverInfo));
+            props12.conformanceVersion = individualDriverProps.conformanceVersion;
+            props12.denormBehaviorIndependence = individualFloatControlsProps.denormBehaviorIndependence;
+            props12.roundingModeIndependence = individualFloatControlsProps.roundingModeIndependence;
+            props12.shaderSignedZeroInfNanPreserveFloat16 = individualFloatControlsProps.shaderSignedZeroInfNanPreserveFloat16;
+            props12.shaderSignedZeroInfNanPreserveFloat32 = individualFloatControlsProps.shaderSignedZeroInfNanPreserveFloat32;
+            props12.shaderSignedZeroInfNanPreserveFloat64 = individualFloatControlsProps.shaderSignedZeroInfNanPreserveFloat64;
+            props12.shaderDenormPreserveFloat16 = individualFloatControlsProps.shaderDenormPreserveFloat16;
+            props12.shaderDenormPreserveFloat32 = individualFloatControlsProps.shaderDenormPreserveFloat32;
+            props12.shaderDenormPreserveFloat64 = individualFloatControlsProps.shaderDenormPreserveFloat64;
+            props12.shaderDenormFlushToZeroFloat16 = individualFloatControlsProps.shaderDenormFlushToZeroFloat16;
+            props12.shaderDenormFlushToZeroFloat32 = individualFloatControlsProps.shaderDenormFlushToZeroFloat32;
+            props12.shaderDenormFlushToZeroFloat64 = individualFloatControlsProps.shaderDenormFlushToZeroFloat64;
+            props12.shaderRoundingModeRTEFloat16 = individualFloatControlsProps.shaderRoundingModeRTEFloat16;
+            props12.shaderRoundingModeRTEFloat32 = individualFloatControlsProps.shaderRoundingModeRTEFloat32;
+            props12.shaderRoundingModeRTEFloat64 = individualFloatControlsProps.shaderRoundingModeRTEFloat64;
+            props12.shaderRoundingModeRTZFloat16 = individualFloatControlsProps.shaderRoundingModeRTZFloat16;
+            props12.shaderRoundingModeRTZFloat32 = individualFloatControlsProps.shaderRoundingModeRTZFloat32;
+            props12.shaderRoundingModeRTZFloat64 = individualFloatControlsProps.shaderRoundingModeRTZFloat64;
+            props12.maxUpdateAfterBindDescriptorsInAllPools = individualDescriptorIndexingProps.maxUpdateAfterBindDescriptorsInAllPools;
+            props12.shaderUniformBufferArrayNonUniformIndexingNative = individualDescriptorIndexingProps.shaderUniformBufferArrayNonUniformIndexingNative;
+            props12.shaderSampledImageArrayNonUniformIndexingNative = individualDescriptorIndexingProps.shaderSampledImageArrayNonUniformIndexingNative;
+            props12.shaderStorageBufferArrayNonUniformIndexingNative = individualDescriptorIndexingProps.shaderStorageBufferArrayNonUniformIndexingNative;
+            props12.shaderStorageImageArrayNonUniformIndexingNative = individualDescriptorIndexingProps.shaderStorageImageArrayNonUniformIndexingNative;
+            props12.shaderInputAttachmentArrayNonUniformIndexingNative = individualDescriptorIndexingProps.shaderInputAttachmentArrayNonUniformIndexingNative;
+            props12.robustBufferAccessUpdateAfterBind = individualDescriptorIndexingProps.robustBufferAccessUpdateAfterBind;
+            props12.quadDivergentImplicitLod = individualDescriptorIndexingProps.quadDivergentImplicitLod;
+            props12.maxPerStageDescriptorUpdateAfterBindSamplers = individualDescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindSamplers;
+            props12.maxPerStageDescriptorUpdateAfterBindUniformBuffers = individualDescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindUniformBuffers;
+            props12.maxPerStageDescriptorUpdateAfterBindStorageBuffers = individualDescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindStorageBuffers;
+            props12.maxPerStageDescriptorUpdateAfterBindSampledImages = individualDescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindSampledImages;
+            props12.maxPerStageDescriptorUpdateAfterBindStorageImages = individualDescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindStorageImages;
+            props12.maxPerStageDescriptorUpdateAfterBindInputAttachments = individualDescriptorIndexingProps.maxPerStageDescriptorUpdateAfterBindInputAttachments;
+            props12.maxPerStageUpdateAfterBindResources = individualDescriptorIndexingProps.maxPerStageUpdateAfterBindResources;
+            props12.maxDescriptorSetUpdateAfterBindSamplers = individualDescriptorIndexingProps.maxDescriptorSetUpdateAfterBindSamplers;
+            props12.maxDescriptorSetUpdateAfterBindUniformBuffers = individualDescriptorIndexingProps.maxDescriptorSetUpdateAfterBindUniformBuffers;
+            props12.maxDescriptorSetUpdateAfterBindUniformBuffersDynamic = individualDescriptorIndexingProps.maxDescriptorSetUpdateAfterBindUniformBuffersDynamic;
+            props12.maxDescriptorSetUpdateAfterBindStorageBuffers = individualDescriptorIndexingProps.maxDescriptorSetUpdateAfterBindStorageBuffers;
+            props12.maxDescriptorSetUpdateAfterBindStorageBuffersDynamic = individualDescriptorIndexingProps.maxDescriptorSetUpdateAfterBindStorageBuffersDynamic;
+            props12.maxDescriptorSetUpdateAfterBindSampledImages = individualDescriptorIndexingProps.maxDescriptorSetUpdateAfterBindSampledImages;
+            props12.maxDescriptorSetUpdateAfterBindStorageImages = individualDescriptorIndexingProps.maxDescriptorSetUpdateAfterBindStorageImages;
+            props12.maxDescriptorSetUpdateAfterBindInputAttachments = individualDescriptorIndexingProps.maxDescriptorSetUpdateAfterBindInputAttachments;
+            props12.supportedDepthResolveModes = individualDepthStencilResolveProps.supportedDepthResolveModes;
+            props12.supportedStencilResolveModes = individualDepthStencilResolveProps.supportedStencilResolveModes;
+            props12.independentResolveNone = individualDepthStencilResolveProps.independentResolveNone;
+            props12.independentResolve = individualDepthStencilResolveProps.independentResolve;
+            props12.filterMinmaxSingleComponentFormats = individualSamplerFilterMinmaxProps.filterMinmaxSingleComponentFormats;
+            props12.filterMinmaxImageComponentMapping = individualSamplerFilterMinmaxProps.filterMinmaxImageComponentMapping;
+            props12.maxTimelineSemaphoreValueDifference = individualTimelineSemaphoreProps.maxTimelineSemaphoreValueDifference;
+            props11.maxPerSetDescriptors = propsExtra.maxPerSetDescriptors;
+            props11.maxMemoryAllocationSize = propsExtra.maxMemoryAllocationSize;
+            // framebufferIntegerColorSampleCounts has no pre-1.2 query. Leave
+            // it unknown here; individual image format queries govern support.
+        }
 
         m_DescriptorHeapProps = DescriptorHeapProps;
         m_DescriptorHeapProps.pNext = nullptr;
@@ -2137,6 +2435,9 @@ Result DeviceVK::CreateInstance(bool enableGraphicsAPIValidation, const Vector<c
 
     VkApplicationInfo appInfo = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
     appInfo.apiVersion = std::clamp(instanceVersion, VK_API_VERSION_1_2, VK_API_VERSION_1_4);
+#if NRI_COMPATIBILITY_API_MINOR
+    appInfo.apiVersion = std::min(appInfo.apiVersion, VK_MAKE_API_VERSION(0, 1, NRI_COMPATIBILITY_API_MINOR, 0));
+#endif
     m_InstanceVersion = appInfo.apiVersion;
 
     const VkValidationFeatureEnableEXT enabledValidationFeatures[] = {
