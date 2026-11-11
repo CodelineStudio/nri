@@ -163,11 +163,11 @@ if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/compile_shaders.py"
             --slangc "${NRI_COMPATIBILITY_SLANGC}" --spirv-val "${NRI_COMPATIBILITY_SPIRV_VAL}"
             --spirv-dis "${NRI_COMPATIBILITY_SPIRV_DIS}" --output "${shader_output}"
-        DEPENDS compile_shaders.py shader_toolchain.json shaders/common.slang shaders/compute.slang shaders/draw.slang
+        DEPENDS compile_shaders.py shader_toolchain.json shaders/common.slang shaders/compute.slang shaders/draw.slang shaders/graphics_state.slang
             "${NRI_COMPATIBILITY_SLANGC}" "${NRI_COMPATIBILITY_SPIRV_VAL}" "${NRI_COMPATIBILITY_SPIRV_DIS}"
             ${shader_runtime_dependencies}
         VERBATIM)
-    add_executable(NRICompatibilityShaderExecution shader_execution.cpp "${shader_output}/compiled_shaders.h")
+    add_executable(NRICompatibilityShaderExecution shader_execution.cpp graphics_state.cpp graphics_state.h "${shader_output}/compiled_shaders.h")
     target_compile_features(NRICompatibilityShaderExecution PRIVATE cxx_std_17)
     set_target_properties(NRICompatibilityShaderExecution PROPERTIES CXX_EXTENSIONS OFF)
     target_include_directories(NRICompatibilityShaderExecution PRIVATE "${shader_output}")

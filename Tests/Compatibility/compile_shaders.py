@@ -36,7 +36,14 @@ def main():
     flags = ['-target', 'spirv', '-profile', 'spirv_1_3', '-emit-spirv-directly', '-matrix-layout-column-major', '-fvk-use-entrypoint-name', '-O2', '-g0']
     manifest['compiler_options'] = flags
     arrays = []
-    for name, file, entry, stage in (('compute', 'compute.slang', 'computeMain', 'compute'), ('vertex', 'draw.slang', 'vertexMain', 'vertex'), ('fragment', 'draw.slang', 'fragmentMain', 'fragment')):
+    corpus = (
+        ('compute', 'compute.slang', 'computeMain', 'compute'),
+        ('vertex', 'draw.slang', 'vertexMain', 'vertex'),
+        ('fragment', 'draw.slang', 'fragmentMain', 'fragment'),
+        ('state_vertex', 'graphics_state.slang', 'stateVertexMain', 'vertex'),
+        ('state_fragment', 'graphics_state.slang', 'stateFragmentMain', 'fragment'),
+    )
+    for name, file, entry, stage in corpus:
         binary = output / (name + '.spv')
         reflection = output / (name + '.reflection.json')
         assembly = output / (name + '.spvasm')
@@ -69,22 +76,30 @@ def main():
         if stage == 'vertex' and entrypoints[0]['parameters'][0]['binding'] != {'kind': 'varyingInput', 'index': 0}:
             raise RuntimeError('Unexpected vertex input location')
         parameters = {item['name']: item for item in reflected['parameters']}
-        uniform = parameters['parameters']
-        if uniform['binding']['index'] != 0 or uniform['binding'].get('space', 0) != 0:
-            raise RuntimeError('Unexpected constant-buffer binding')
+        state = name.startswith('state_')
+        uniform = parameters['drawParameters' if state else 'parameters']
+        kind = 'pushConstantBuffer' if state else 'descriptorTableSlot'
+        if uniform['binding']['kind'] != kind or uniform['binding']['index'] != 0 or uniform['binding'].get('space', 0) != 0:
+            raise RuntimeError('Unexpected parameter binding')
         fields = uniform['type']['elementType']['fields']
         offsets = {item['name']: (item['binding']['offset'], item['binding']['size']) for item in fields}
-        if offsets != {'count': (0, 4), 'multiplier': (4, 4), 'bias': (8, 4), 'nonce': (12, 4), 'transform': (16, 64)}:
+        expected = {'depth': (0, 4), 'opacity': (4, 4), 'flags': (8, 4), 'padding': (12, 4)} if state else {'count': (0, 4), 'multiplier': (4, 4), 'bias': (8, 4), 'nonce': (12, 4), 'transform': (16, 64)}
+        if offsets != expected:
             raise RuntimeError('CPU/uniform layout mismatch')
-        if stage != 'vertex' and (parameters['results']['binding']['index'] != 1 or parameters['results']['binding'].get('space', 0) != 0):
-            raise RuntimeError('Unexpected storage-buffer binding')
+        resources = {'image': 0, 'imageSampler': 1} if state else {'results': 1}
+        if stage != 'vertex':
+            for resource, binding in resources.items():
+                if parameters[resource]['binding']['index'] != binding or parameters[resource]['binding'].get('space', 0) != 0:
+                    raise RuntimeError('Unexpected resource binding')
+        if state and stage == 'vertex' and [item['binding']['index'] for item in entrypoints[0]['parameters']] != [0, 1, 2]:
+            raise RuntimeError('Unexpected vertex/instance input locations')
         manifest['shaders'][name] = {'entry': entry, 'stage': stage, 'binary_sha256': digest(binary), 'reflection_sha256': digest(reflection), 'capabilities': capabilities, 'uniform_offsets': offsets, 'byte_count': len(raw)}
         arrays.append('inline constexpr uint32_t ' + name + '[] = {' + ','.join(hex(word) for word in words) + '};')
     encoded = json.dumps(manifest, sort_keys=True, separators=(',', ':'))
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
     header = '#pragma once\n#include <cstdint>\nnamespace shader_fixture {\n' + '\n'.join(arrays) + '\ninline constexpr char manifest[] = R"manifest(' + encoded + ')manifest";\n}\n'
     (output / 'compiled_shaders.h').write_text(header, encoding='utf-8')
-    print('Compiled and validated three SPIR-V1.3 shaders; uniform offsets and baseline capabilities verified.')
+    print('Compiled and validated five SPIR-V1.3 shaders; parameter offsets and baseline capabilities verified.')
 
 
 if __name__ == '__main__':

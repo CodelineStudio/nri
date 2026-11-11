@@ -78,6 +78,8 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.fixture == 'nri_vulkan_shader_execution' and (receipt['fixture'].get('exact_cycles') != 8 or receipt['fixture'].get('graphics_state_cases') != 8 or receipt['fixture'].get('max_channel_error', 256) > 1):
+                    raise ValueError('Shader/graphics-state output checks did not pass')
                 if args.require_present_retirement:
                     records = [json.loads(line.split('NRI_PRESENT_RETIREMENT ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if 'NRI_PRESENT_RETIREMENT ' in line]
                     if args.fixture != 'nri_vulkan_presentation' or not records:

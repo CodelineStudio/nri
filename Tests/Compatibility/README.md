@@ -244,9 +244,24 @@ storage results per cycle (integer overflow, workgroup neighbor exchange/barrier
 matrix transform and nonce) and all 4096 RGBA pixels (vertex input, off-center
 column-major transform, top-left viewport, scissor and compute-to-fragment reads).
 Both fixed descriptor bindings and the 80-byte uniform layout are checked against
-Slang reflection. This is a baseline corpus, not complete shader or graphics-state
-coverage: texture/sampler, blend/depth/stencil, shader MSAA, optional capabilities,
-production shader families, text/module packaging and caches still need tests.
+Slang reflection.
+
+Eight additional graphics cases combine nearest/linear clamp sampling,
+straight/premultiplied alpha and 1x/4x MSAA. Each samples a nonzero mip/layer of
+a texture array using separate texture/sampler descriptors and a reflected
+16-byte push constant. Indexed two-instance draws use an ordinary per-instance
+vertex stream; the right instance mirrors the texture. A scissored depth/stencil
+mask precedes deliberate stencil and depth rejection draws, then alpha blending
+and attachment color resolve. All 4096 pixels are checked against a CPU sampling
+oracle: alpha and untouched pixels are exact, with at most one UNORM8 unit of
+RGB rounding tolerance inside the mask. `graphics_state_cases` must equal eight;
+`max_channel_error` reports the observed maximum. Unexpected validation errors
+stop subsequent cases. Geometry covers full pixels; fractional-edge MSAA quality
+and other sample counts are not qualified by this test.
+
+This remains a bounded corpus: optional capabilities, indirect/base-offset draw
+semantics, production shader families, text/module packaging and caches still
+need qualification. These reusable shaders are not the consumer's Noesis backend.
 
 Pins are in `shader_toolchain.json`. Use the official Slang 2026.21 package and
 build `spirv-val`/`spirv-dis` from its recorded Khronos revisions. The Windows
@@ -274,7 +289,15 @@ consumer's eventual persistent cache or mobile runtime compiler implementation.
 Run with `--fixture nri_vulkan_shader_execution` and the new executable. For the
 extension-free profile, configure API_MINOR=1, RENDERPASS1, NO_TIMELINE,
 NO_HOST_RESET and FORCE_LEGACY_SYNC. The runner accepts `--require-renderpass1`
-for this fixture and requires all eight exact cycles as well as the profile.
+for this fixture and requires all eight exact cycles plus eight graphics cases
+as well as the profile. Switch RENDERPASS1 off and RENDERPASS2 on, with the other
+settings unchanged, to qualify the KHR renderpass2 path using
+`--require-renderpass2`. Restore all forced profile options for the native run.
+
+The first expanded fixture incorrectly requested resolve-source access for its
+single-sample color image. NRI validation rejected the barrier and native
+validation reported the resulting missing transitions. Resolve-source access
+and stage now apply only to the multisample source; keep the failed receipt.
 
 The initial vertex-ID probe compiled valid Vulkan1.1 SPIR-V but was rejected by
 the stricter corpus capability check: Slang 2026.21 implements `SV_VertexID` using
