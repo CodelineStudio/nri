@@ -250,6 +250,20 @@ if(NRI_COMPATIBILITY_SLANGC OR NRI_COMPATIBILITY_SPIRV_VAL OR NRI_COMPATIBILITY_
             "${NRI_COMPATIBILITY_SLANGC}" "${NRI_COMPATIBILITY_SPIRV_VAL}" "${NRI_COMPATIBILITY_SPIRV_DIS}"
             ${shader_runtime_dependencies} ${shader_input_dependencies}
         VERBATIM)
+    add_executable(NRICompatibilityInflightResources inflight_resources.cpp "${shader_output}/compiled_shaders.h")
+    target_compile_features(NRICompatibilityInflightResources PRIVATE cxx_std_17)
+    set_target_properties(NRICompatibilityInflightResources PROPERTIES CXX_EXTENSIONS OFF)
+    target_include_directories(NRICompatibilityInflightResources PRIVATE "${shader_output}")
+    target_link_libraries(NRICompatibilityInflightResources PRIVATE NRI)
+    target_compile_definitions(NRICompatibilityInflightResources PRIVATE
+        NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
+        NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
+        NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>)
+    if(NOT NRI_STATIC_LIBRARY)
+        add_custom_command(TARGET NRICompatibilityInflightResources POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:NRI>" "$<TARGET_FILE_DIR:NRICompatibilityInflightResources>"
+            VERBATIM)
+    endif()
     add_executable(NRICompatibilityShaderExecution shader_execution.cpp draw_capabilities_c.c graphics_state.cpp graphics_state.h pipeline_cache_io.cpp pipeline_cache_io.h "${shader_output}/compiled_shaders.h")
     target_compile_features(NRICompatibilityShaderExecution PRIVATE cxx_std_17)
     set_target_properties(NRICompatibilityShaderExecution PROPERTIES CXX_EXTENSIONS OFF)

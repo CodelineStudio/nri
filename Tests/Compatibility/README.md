@@ -683,3 +683,27 @@ checks 192 requested intervals against the native mapping and binding manifests:
 retain the conservative final-atom fallback. This does not qualify arbitrary
 wrapped BufferVK offsets absent from that public descriptor, overlapping in-flight
 work, or noncoherent hardware when the selected memory is coherent.
+
+### Overlapping in-flight resource generations
+
+NRICompatibilityInflightResources reuses the validated Slang compute corpus.
+Three independent slots hold command allocators/buffers, descriptor pools/sets,
+uniform/storage/readback buffers and completion fences. Ninety-six submissions
+wait for successive future values on a separate gate fence. A second graphics
+queue releases one value at a time; no host-signal API is added.
+
+The fixture proves the unreleased generations remain incomplete, validates all
+64 compute records after completion, resets only that slot's allocator/pool,
+and destroys/recreates its buffers and views while other slots remain pending.
+It records 96 exact completions, 96 pool resets, 96 resource generations,
+474 pending-value checks, a maximum of three pending slots, and 95 retirements
+with other work still pending. Device idle occurs only at final/error cleanup;
+accepted future waits are released before error cleanup to allow draining.
+This tests pending work and completion-based reuse, not parallel shader execution
+or performance. Host concurrency and actual memory pressure are separate cases.
+
+Use --fixture nri_vulkan_inflight_resources with the standalone runner. This
+fixture requires the Slang toolchain and two graphics queues on the selected
+adapter, like the future-fence sequence fixture. That is a fixture requirement,
+not a new Vulkan/engine device-admission minimum. Single-queue hardware needs its
+own lifetime acceptance path; a masked modern device is not legacy hardware proof.

@@ -16,7 +16,7 @@ from capability_manifest import parse_manifest, require_individual_features
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--exe", type=Path, required=True)
-    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory"), default="nri_vulkan_buffer_baseline")
+    parser.add_argument("--fixture", choices=("nri_vulkan_buffer_baseline", "nri_vulkan_fence_sequences", "nri_vulkan_query_reset", "nri_vulkan_presentation", "nri_vulkan_shader_execution", "nri_vulkan_memory_lifetime", "nri_vulkan_wrapped_memory", "nri_vulkan_inflight_resources"), default="nri_vulkan_buffer_baseline")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=60)
     parser.add_argument("--adapter", type=int, default=0)
@@ -121,6 +121,10 @@ def main():
                 manifest = parse_manifest(stderr.decode("utf-8", errors="replace"))
                 receipt["capability_manifest"] = manifest
                 receipt["fixture"]["api_versions_and_enabled_extensions"] = manifest
+                if args.fixture == 'nri_vulkan_inflight_resources':
+                    expected = {'submitted_jobs': 96, 'completed_jobs': 96, 'blocked_batches': 96, 'pending_checks': 474, 'max_pending': 3, 'pool_resets': 96, 'resource_generations': 96, 'retired_with_others_pending': 95}
+                    if any(receipt['fixture'].get(k) != v for k, v in expected.items()):
+                        raise ValueError('Overlapping submission/resource retirement coverage incomplete')
                 if args.fixture == 'nri_vulkan_wrapped_memory':
                     wrapped = receipt['fixture']
                     if any(wrapped.get(k) != v for k, v in {'exact_cycles': 24, 'provided_mapping_cases': 8, 'nri_mapping_cases': 8, 'unknown_extent_cases': 8}.items()):
