@@ -629,3 +629,30 @@ whole-buffer and last-byte access, and both offset and size addition overflow.
 The native interface must not be called for rejected ranges. This is a test of
 shared validation control flow; it does not emulate Vulkan cache coherency or
 claim a real driver mapping failure.
+
+### Mapped memory ranges
+
+Explicitly bound host buffers retain the known native mapping end. Raw flush
+and invalidate calls use the smallest complete atom interval that fits that
+mapping, avoiding a WHOLE_SIZE range through unrelated allocations. VMA-backed
+Memory objects use the mapped native block extent from VmaAllocationInfo2;
+buffer-owned VMA allocations continue using VMA's own flush/invalidate helpers.
+A final partial allocation atom still uses Vulkan WHOLE_SIZE when needed.
+Wrapped buffers without extent metadata retain a conservative partial-tail
+fallback; supplied native mappings must satisfy Vulkan atom and mapping rules.
+No public struct or interface layout changes.
+
+NRIMappedMemoryRangeTests covers twelve fixed cases: padded mappings, interior
+and final atoms, subrange ends, absent wrapper extents and rounding overflow.
+The memory fixture now uses padded direct/VMA allocations and nonzero binding
+offsets, with whole-buffer, explicit full-buffer and partial-buffer maps.
+NRI WHOLE_SIZE is zero; it is distinct from Vulkan VK_WHOLE_SIZE.
+
+NRI_COMPATIBILITY_MAPPED_RANGES=ON forces the explicit-binding raw range path
+on coherent host memory and records each requested native interval. The runner
+flag --require-mapped-ranges requires 768 correctly bounded calls in 64 cycles,
+plus 128 nonzero bindings (zero in the forced dedicated profile). Native
+validation checks the calls; exact GPU readback still checks resource contents.
+The switch defaults OFF. This is range instrumentation, not noncoherent cache
+emulation or real noncoherent hardware acceptance. Dedicated allocation/map
+failure recovery can be combined with this profile.

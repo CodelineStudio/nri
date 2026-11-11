@@ -52,6 +52,18 @@ struct MemoryVK final : public DebugNameBase {
         return m_Offset;
     }
 
+    inline uint64_t GetMappedMemoryEnd() const {
+        if (m_VmaAllocation) {
+            VmaAllocationInfo2 info = {};
+            vmaGetAllocationInfo2(m_Device.GetVma(), m_VmaAllocation, &info);
+
+            // VMA persistently maps the native block, not just the allocation.
+            return info.blockSize;
+        }
+
+        return m_MappedMemoryEnd;
+    }
+
     ~MemoryVK();
 
     Result Create(const MemoryVKDesc& memoryVKDesc);
@@ -69,6 +81,7 @@ private:
     VkDeviceMemory m_Handle = VK_NULL_HANDLE;
     VmaAllocation m_VmaAllocation = nullptr;
     uint64_t m_Offset = 0;
+    uint64_t m_MappedMemoryEnd = 0;
     uint8_t* m_MappedMemory = nullptr;
     MemoryType m_Type = std::numeric_limits<MemoryType>::max();
     float m_Priority = 0.0f;

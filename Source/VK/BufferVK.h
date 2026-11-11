@@ -72,6 +72,7 @@ private:
     uint8_t* m_MappedMemory = nullptr;
     VkDeviceMemory m_NonCoherentDeviceMemory = VK_NULL_HANDLE;
     uint64_t m_NonCoherentDeviceMemoryOffset = 0;
+    uint64_t m_NonCoherentMappedMemoryEnd = 0;
     uint64_t m_MappedMemoryRangeSize = 0;
     uint64_t m_MappedMemoryRangeOffset = 0;
     BufferDesc m_Desc = {};

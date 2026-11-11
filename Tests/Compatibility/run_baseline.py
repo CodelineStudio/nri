@@ -45,7 +45,10 @@ def main():
     parser.add_argument('--compute-xor', type=int, default=0)
     parser.add_argument('--compute-validator', type=Path)
     parser.add_argument("--require-memory-failures", action="store_true")
+    parser.add_argument("--require-mapped-ranges", action="store_true")
     args = parser.parse_args()
+    if args.require_mapped_ranges and args.fixture != "nri_vulkan_memory_lifetime":
+        parser.error("Mapped range requirements need the memory lifetime fixture")
     if args.require_memory_failures and args.fixture != "nri_vulkan_memory_lifetime":
         parser.error("Memory failure requirements need the memory lifetime fixture")
     if args.compute_input and (args.fixture != 'nri_vulkan_shader_execution' or not args.compute_validator):
@@ -125,6 +128,28 @@ def main():
                         raise ValueError('Memory retirement/readback or failure recovery incomplete')
                     if args.require_memory_failures and not (memory.get('forced_dedicated') and memory.get('memory_failures')):
                         raise ValueError('Memory failure profile not active')
+                    if args.require_mapped_ranges and not memory.get('mapped_ranges_forced'):
+                        raise ValueError('Explicit mapped range instrumentation is not active')
+                    if memory.get('mapped_ranges_forced'):
+                        ranges = [json.loads(line.split('NRI_MAPPED_RANGE ', 1)[1]) for line in stderr.decode('utf-8').splitlines() if line.startswith('NRI_MAPPED_RANGE ')]
+                        expected_nonzero = 0 if memory.get('forced_dedicated') else 128
+                        if len(ranges) != 768 or memory.get('nonzero_bindings') != expected_nonzero:
+                            raise ValueError('Padded allocation/offset/range coverage incomplete')
+                        for i, item in enumerate(ranges):
+                            expected_request = (0, 1024) if i % 6 < 4 else (5, 500)
+                            if (item['request_offset'], item['request_size']) != expected_request or (expected_nonzero and item['memory_offset'] == 0) or item['buffer_size'] != 1024:
+                                raise ValueError('Unexpected mapped range sequence')
+                            atom = item['atom_size']
+                            begin = item['memory_offset'] + item['request_offset']
+                            end = begin + item['request_size']
+                            start_atom = begin // atom
+                            end_atom = (end + atom - 1) // atom
+                            expected_offset = start_atom * atom
+                            expected_size = (end_atom - start_atom) * atom if end_atom * atom <= item['mapped_end'] else 0xffffffffffffffff
+                            if item['offset'] != expected_offset or item['size'] != expected_size:
+                                raise ValueError('Mapped range includes unrelated atoms or exceeds mapped extent')
+                        receipt['mapped_ranges'] = {'calls': len(ranges), 'nonzero_bindings': memory['nonzero_bindings'], 'whole_size_calls': sum(item['size'] == 0xffffffffffffffff for item in ranges), 'atom_sizes': sorted(set(item['atom_size'] for item in ranges)), 'coherent_memory_instrumentation': True}
+
                 if args.fixture == 'nri_vulkan_shader_execution' and (receipt['fixture'].get('exact_cycles') != 8 or receipt['fixture'].get('indirect_cycles') != 8 or receipt['fixture'].get('indexed_offset_cases') != 8 or receipt['fixture'].get('graphics_state_cases') != 8 or receipt['fixture'].get('max_channel_error', 256) > 1):
                     raise ValueError('Shader/graphics-state output checks did not pass')
                 if args.fixture == 'nri_vulkan_shader_execution':

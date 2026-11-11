@@ -817,6 +817,7 @@ if(NRI_ENABLE_VK_SUPPORT)
         "Source/VK/FenceVK.hpp"
         "Source/VK/ImplVK.cpp"
         "Source/VK/MemoryAllocatorVK.h"
+        "Source/VK/MappedMemoryRangeVK.h"
         "Source/VK/MemoryVK.h"
         "Source/VK/MemoryVK.hpp"
         "Source/VK/MicromapVK.h"

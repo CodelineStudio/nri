@@ -1,5 +1,7 @@
 // © 2021 NVIDIA Corporation
 
+#include "MappedMemoryRangeVK.h"
+
 BufferVK::~BufferVK() {
     if (m_OwnsNativeObjects) {
         const auto& vk = m_Device.GetDispatchTable();
@@ -223,9 +225,18 @@ Result BufferVK::BindMemory(MemoryVK& memory, uint64_t offset, bool bindMemory) 
     if (IsHostVisibleMemory(memoryTypeInfo.location)) {
         m_MappedMemory = memory.GetMappedMemory() + offset;
 
-        if (!m_Device.IsHostCoherentMemory(memoryTypeInfo.index)) {
+        bool requiresFlush = !m_Device.IsHostCoherentMemory(memoryTypeInfo.index);
+
+#if NRI_COMPATIBILITY_MAPPED_RANGES
+        // Exercise raw Vulkan range calls on coherent host memory as well.
+        // This does not emulate actual noncoherent cache behavior.
+        requiresFlush = true;
+#endif
+
+        if (requiresFlush) {
             m_NonCoherentDeviceMemory = memory.GetHandle();
             m_NonCoherentDeviceMemoryOffset = memory.GetOffset() + offset;
+            m_NonCoherentMappedMemoryEnd = memory.GetMappedMemoryEnd();
         }
     }
 
@@ -298,16 +309,13 @@ Result BufferVK::FlushMappedRange(uint64_t offset, uint64_t size) {
 
 VkMappedMemoryRange BufferVK::GetNonCoherentMappedMemoryRange(uint64_t offset, uint64_t size) const {
     uint64_t atomSize = m_Device.GetNonCoherentAtomSize();
-    uint64_t rangeBegin = m_NonCoherentDeviceMemoryOffset + offset;
-    uint64_t rangeEnd = rangeBegin + size;
-    uint64_t bufferEnd = m_NonCoherentDeviceMemoryOffset + m_Desc.size;
+    VkMappedMemoryRange range = BuildMappedMemoryRange(m_NonCoherentDeviceMemory, m_NonCoherentDeviceMemoryOffset, m_Desc.size, m_NonCoherentMappedMemoryEnd, atomSize, offset, size);
 
-    VkMappedMemoryRange memoryRange = {VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE};
-    memoryRange.memory = m_NonCoherentDeviceMemory;
-    memoryRange.offset = rangeBegin & ~(atomSize - 1);
-    memoryRange.size = (bufferEnd - rangeEnd < atomSize) ? VK_WHOLE_SIZE : (Align(rangeEnd, atomSize) - memoryRange.offset);
+#if NRI_COMPATIBILITY_MAPPED_RANGES
+    std::fprintf(stderr, "NRI_MAPPED_RANGE {\"memory_offset\":%llu,\"buffer_size\":%llu,\"mapped_end\":%llu,\"atom_size\":%llu,\"request_offset\":%llu,\"request_size\":%llu,\"offset\":%llu,\"size\":%llu}\n", (unsigned long long)m_NonCoherentDeviceMemoryOffset, (unsigned long long)m_Desc.size, (unsigned long long)m_NonCoherentMappedMemoryEnd, (unsigned long long)atomSize, (unsigned long long)offset, (unsigned long long)size, (unsigned long long)range.offset, (unsigned long long)range.size);
+#endif
 
-    return memoryRange;
+    return range;
 }
 
 NRI_INLINE void BufferVK::SetDebugName(const char* name) {

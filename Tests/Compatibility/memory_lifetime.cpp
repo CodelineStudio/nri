@@ -23,7 +23,7 @@ struct Fixture {
     std::array<nri::Texture*, 2> images{};
     std::array<nri::Memory*, 4> memory{};
     std::atomic<uint32_t> errors{0}, warnings{0}, expectedErrors{0};
-    uint32_t cycles = 0, recoveries = 0, deviceId = 0, driver = 0;
+    uint32_t cycles = 0, recoveries = 0, deviceId = 0, driver = 0, nonzeroBindings = 0;
     bool ready = false, expectingFailure = false;
 
     static void NRI_CALL Message(nri::Message severity, const char* file, uint32_t line, const char* text, void* user) {
@@ -97,6 +97,10 @@ struct Fixture {
 
         nri::AllocateMemoryDesc allocate = {};
         allocate.size = desc.size;
+
+        if (index < 2 && !desc.mustBeDedicated)
+            allocate.size += 2 * uint64_t(desc.alignment) + (index == 0 ? 1024 : 0);
+
         allocate.type = desc.type;
         allocate.vma.enable = vma;
         allocate.vma.alignment = desc.alignment;
@@ -122,7 +126,9 @@ struct Fixture {
             if (!Allocate(i, requirements, (cycle & 1) != 0))
                 return false;
 
-            bufferBindings[i] = {buffers[i], memory[i], 0};
+            uint64_t offset = requirements.mustBeDedicated ? 0 : requirements.alignment;
+            bufferBindings[i] = {buffers[i], memory[i], offset};
+            nonzeroBindings += offset != 0;
             nri::TextureDesc image = {};
             image.type = nri::TextureType::TEXTURE_2D;
             image.format = nri::Format::RGBA8_UNORM;
@@ -174,7 +180,13 @@ struct Fixture {
             for (uint32_t byte = 0; byte < 1024; byte++)
                 expected[i][byte] = uint8_t(byte * 13 + cycle * 17 + i * 43);
 
-            void* mapped = core.MapBuffer(*buffers[i], 0, 1024);
+            void* mapped = core.MapBuffer(*buffers[i], 0, nri::WHOLE_SIZE);
+
+            if (!Check(mapped != nullptr, "whole size map"))
+                return false;
+
+            core.UnmapBuffer(*buffers[i]);
+            mapped = core.MapBuffer(*buffers[i], 0, 1024);
 
             if (!Check(mapped != nullptr, "initial map"))
                 return false;
@@ -351,7 +363,7 @@ int main(int argc, char** argv) {
 
     passed = fixture.Cleanup() && passed && fixture.errors.load() == 0 && fixture.warnings.load() == 0;
     passed &= fixture.expectedErrors.load() == (NRI_COMPATIBILITY_MEMORY_FAILURES ? 3u : 0u);
-    std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_memory_lifetime\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"expected_errors\":%u,\"recoveries\":%u,\"forced_dedicated\":%s,\"memory_failures\":%s,\"legacy_sync_forced\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.cycles, fixture.expectedErrors.load(), fixture.recoveries, NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY ? "true" : "false", NRI_COMPATIBILITY_MEMORY_FAILURES ? "true" : "false", NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false");
+    std::printf("{\"schema_version\":1,\"fixture\":\"nri_vulkan_memory_lifetime\",\"status\":\"%s\",\"source_commit\":\"%s\",\"compiler\":\"%s\",\"device_id\":%u,\"driver_version_raw\":%u,\"validation_errors\":%u,\"validation_warnings\":%u,\"exact_cycles\":%u,\"expected_errors\":%u,\"recoveries\":%u,\"nonzero_bindings\":%u,\"mapped_ranges_forced\":%s,\"forced_dedicated\":%s,\"memory_failures\":%s,\"legacy_sync_forced\":%s}\n", passed ? "passed" : "failed", NRI_COMPATIBILITY_SOURCE_COMMIT, NRI_COMPATIBILITY_COMPILER, fixture.deviceId, fixture.driver, fixture.errors.load(), fixture.warnings.load(), fixture.cycles, fixture.expectedErrors.load(), fixture.recoveries, fixture.nonzeroBindings, NRI_COMPATIBILITY_MAPPED_RANGES ? "true" : "false", NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY ? "true" : "false", NRI_COMPATIBILITY_MEMORY_FAILURES ? "true" : "false", NRI_COMPATIBILITY_FORCE_LEGACY_SYNC ? "true" : "false");
 
     return std::fflush(stdout) == 0 && passed ? 0 : 1;
 }

@@ -11,6 +11,9 @@ if(NOT NRI_ENABLE_VK_SUPPORT)
     message(FATAL_ERROR "NRICompatibilityBaseline requires NRI_ENABLE_VK_SUPPORT")
 endif()
 
+option(NRI_COMPATIBILITY_MAPPED_RANGES "Exercise explicit mapped range calls on coherent host memory for validation" OFF)
+target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_MAPPED_RANGES=$<BOOL:${NRI_COMPATIBILITY_MAPPED_RANGES}>)
+
 option(NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY "Force legal dedicated allocations for memory-failure qualification" OFF)
 option(NRI_COMPATIBILITY_MEMORY_FAILURES "Inject one buffer/image allocation failure and one buffer map failure" OFF)
 if(NRI_COMPATIBILITY_MEMORY_FAILURES AND NOT NRI_COMPATIBILITY_FORCE_DEDICATED_MEMORY)
@@ -126,6 +129,11 @@ add_executable(NRIPipelineCacheHeaderTests pipeline_cache_header.cpp)
 target_compile_features(NRIPipelineCacheHeaderTests PRIVATE cxx_std_17)
 target_include_directories(NRIPipelineCacheHeaderTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../Source/VK" "${vulkan_headers_SOURCE_DIR}/include")
 add_test(NAME NRIPipelineCacheHeaderTests COMMAND NRIPipelineCacheHeaderTests)
+add_executable(NRIMappedMemoryRangeTests mapped_memory_range.cpp)
+target_compile_features(NRIMappedMemoryRangeTests PRIVATE cxx_std_17)
+set_target_properties(NRIMappedMemoryRangeTests PROPERTIES CXX_EXTENSIONS OFF)
+target_include_directories(NRIMappedMemoryRangeTests PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../../Source/VK" "${vulkan_headers_SOURCE_DIR}/include")
+add_test(NAME NRIMappedMemoryRangeTests COMMAND NRIMappedMemoryRangeTests)
 # Test-only provenance: emit what NRI actually enabled, not a second probe device.
 target_compile_definitions(NRI_VK PRIVATE NRI_COMPATIBILITY_DIAGNOSTICS=1)
 target_compile_features(NRICompatibilityBaseline PRIVATE cxx_std_17)
@@ -155,6 +163,7 @@ target_compile_features(NRICompatibilityMemoryLifetime PRIVATE cxx_std_17)
 set_target_properties(NRICompatibilityMemoryLifetime PROPERTIES CXX_EXTENSIONS OFF)
 target_link_libraries(NRICompatibilityMemoryLifetime PRIVATE NRI)
 target_compile_definitions(NRICompatibilityMemoryLifetime PRIVATE
+    NRI_COMPATIBILITY_MAPPED_RANGES=$<BOOL:${NRI_COMPATIBILITY_MAPPED_RANGES}>
     NRI_COMPATIBILITY_SOURCE_COMMIT="${NRI_COMPATIBILITY_SOURCE_COMMIT}"
     NRI_COMPATIBILITY_COMPILER="${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}"
     NRI_COMPATIBILITY_FORCE_LEGACY_SYNC=$<BOOL:${NRI_COMPATIBILITY_FORCE_LEGACY_SYNC}>

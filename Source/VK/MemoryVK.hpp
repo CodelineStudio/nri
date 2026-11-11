@@ -23,6 +23,7 @@ Result MemoryVK::Create(const MemoryVKDesc& memoryVKDesc) {
     m_MappedMemory = (uint8_t*)memoryVKDesc.mappedMemory;
     m_Type = Pack(memoryTypeInfo);
     m_Offset = memoryVKDesc.offset;
+    m_MappedMemoryEnd = (memoryVKDesc.size != VK_WHOLE_SIZE && memoryVKDesc.offset <= (std::numeric_limits<uint64_t>::max() - memoryVKDesc.size)) ? memoryVKDesc.offset + memoryVKDesc.size : 0;
 
     const auto& vk = m_Device.GetDispatchTable();
     if (!m_MappedMemory && IsHostVisibleMemory(memoryTypeInfo.location)) {
@@ -35,6 +36,7 @@ Result MemoryVK::Create(const MemoryVKDesc& memoryVKDesc) {
 
 Result MemoryVK::Create(const AllocateMemoryDesc& allocateMemoryDesc) {
     m_Type = allocateMemoryDesc.type;
+    m_MappedMemoryEnd = allocateMemoryDesc.size;
     m_Priority = m_Device.m_IsSupported.memoryPriority ? (allocateMemoryDesc.priority * 0.5f + 0.5f) : 0.5f;
 
     MemoryTypeInfo memoryTypeInfo = Unpack(allocateMemoryDesc.type);
@@ -167,6 +169,7 @@ Result MemoryVK::CreateDedicated(const BufferVK* buffer, const TextureVK* textur
 
     m_Handle = handle;
     m_MappedMemory = mappedMemory;
+    m_MappedMemoryEnd = memoryDesc.size;
 
     return Result::SUCCESS;
 }
