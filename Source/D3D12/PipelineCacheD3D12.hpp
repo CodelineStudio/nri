@@ -12,8 +12,13 @@ Result PipelineCacheD3D12::Create(const PipelineCacheDesc& pipelineCacheDesc) {
 
     HRESULT hr = m_Device->CreatePipelineLibrary(m_Blob.data(), m_Blob.size(), IID_PPV_ARGS(&m_Library));
 
-    // If pipeline cache is supported it may fail only on stale/incompatible data, map to "OUT_OF_DATE"
-    return FAILED(hr) ? Result::OUT_OF_DATE : Result::SUCCESS;
+    // Driver/device loss and allocation failure are not stale cache data. Keep
+    // those results visible so callers cannot report a successful cache rebuild
+    // on a lost device. Other import failures admit an empty-cache retry.
+    if (SUCCEEDED(hr))
+        return Result::SUCCESS;
+    Result result = GetResultFromHRESULT(hr);
+    return result == Result::DEVICE_LOST || result == Result::OUT_OF_MEMORY ? result : Result::OUT_OF_DATE;
 }
 
 Result PipelineCacheD3D12::GetData(void* dst, uint64_t& size) const {
