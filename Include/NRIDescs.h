@@ -416,7 +416,11 @@ NriBits(FormatSupportBits, uint32_t,
     STORAGE_WRITE_WITHOUT_FORMAT    = NriBit(15),   // storage write with unknown format
 
     // Host (generally supported for non-depth/stencil formats with "TEXTURE" bit support)
-    HOST_COPY                       = NriBit(16)    // synchronous host copies are supported
+    HOST_COPY                       = NriBit(16),   // synchronous host copies are supported
+
+    // Non-comparison, weighted-average linear min/mag/mip filtering; implies TEXTURE.
+    // Depth-stencil formats describe the depth aspect, never stencil. Does not imply anisotropy, comparison or min/max filtering.
+    TEXTURE_FILTER_LINEAR           = NriBit(17)
 );
 
 #pragma endregion

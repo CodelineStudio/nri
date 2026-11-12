@@ -8,7 +8,8 @@ also copies the pattern through mip 1 / array layer 1 of a texture, checks GPU
 timestamp ordering, signals/waits/queries fence values 1 through 3 (including
 queued waits, an empty submission and an older repeated wait), and waits for idle
 before teardown. Errors return nonzero.
-It also checks basic format/limit queries and creates a fixed descriptor layout,
+It also checks basic format/limit queries (including RGBA8 linear filtering,
+R32_UINT non-filterability and the linear-filter-to-texture implication) and creates a fixed descriptor layout,
 pool and set. These checks do not execute a shader or establish draw correctness.
 Rendering checks exercise clear/load/store, an asymmetric rectangular clear and
 cache reuse at mip1/layer1, first as an ordinary color attachment and then with

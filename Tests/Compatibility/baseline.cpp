@@ -15,6 +15,10 @@
 #include <string>
 #include <vector>
 
+static_assert(sizeof(nri::FormatSupportBits) == sizeof(uint32_t));
+static_assert(uint32_t(nri::FormatSupportBits::HOST_COPY) == (1u << 16));
+static_assert(uint32_t(nri::FormatSupportBits::TEXTURE_FILTER_LINEAR) == (1u << 17));
+
 namespace {
 
 struct Diagnostics {
@@ -148,10 +152,28 @@ struct Fixture {
 
         const nri::FormatSupportBits rgbaSupport = core.GetFormatSupport(*device, nri::Format::RGBA8_UNORM);
 
-        if (!(rgbaSupport & nri::FormatSupportBits::TEXTURE) || !(rgbaSupport & nri::FormatSupportBits::COLOR_ATTACHMENT)) {
-            failure = "Required RGBA8 sampled/color-attachment format support is missing";
+        if (!(rgbaSupport & nri::FormatSupportBits::TEXTURE) || !(rgbaSupport & nri::FormatSupportBits::COLOR_ATTACHMENT) || !(rgbaSupport & nri::FormatSupportBits::TEXTURE_FILTER_LINEAR)) {
+            failure = "Required RGBA8 sampled/color-attachment/linear-filter format support is missing";
 
             return false;
+        }
+
+        const nri::FormatSupportBits integerSupport = core.GetFormatSupport(*device, nri::Format::R32_UINT);
+
+        if (!(integerSupport & nri::FormatSupportBits::TEXTURE) || (integerSupport & nri::FormatSupportBits::TEXTURE_FILTER_LINEAR)) {
+            failure = "Integer sampled format must not advertise linear filtering";
+
+            return false;
+        }
+
+        for (uint32_t i = 0; i < uint32_t(nri::Format::MAX_NUM); i++) {
+            const nri::FormatSupportBits support = core.GetFormatSupport(*device, nri::Format(i));
+
+            if ((support & nri::FormatSupportBits::TEXTURE_FILTER_LINEAR) && !(support & nri::FormatSupportBits::TEXTURE)) {
+                failure = "Linear-filter support must imply sampled-texture support";
+
+                return false;
+            }
         }
 
         nri::DescriptorRangeDesc range = {};

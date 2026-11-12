@@ -706,6 +706,12 @@ FormatSupportBits nri::GetFormatSupportWGPU(Format format) {
 
     const FormatProps& props = GetFormatProps(format);
     FormatSupportBits support = FormatSupportBits::TEXTURE;
+    const bool isFloat32 = format == Format::R32_SFLOAT || format == Format::RG32_SFLOAT || format == Format::RGBA32_SFLOAT;
+
+    // Depth filtering is comparison-only in WebGPU. Float32 needs an enabled device feature.
+    // wgpu-native's TextureFormat16bitNorm feature provides filterable normalized formats.
+    if (!props.isInteger && !props.isDepth && !props.isStencil && !isFloat32)
+        support |= FormatSupportBits::TEXTURE_FILTER_LINEAR;
 
     if (!props.isDepth && !props.isStencil)
         support |= FormatSupportBits::HOST_COPY;

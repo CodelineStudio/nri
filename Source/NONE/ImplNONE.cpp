@@ -253,7 +253,8 @@ static const TextureDesc& NRI_CALL GetTextureDesc(const Texture&) {
 }
 
 static FormatSupportBits NRI_CALL GetFormatSupport(const Device&, Format) {
-    return (FormatSupportBits)(-1);
+    // Preserve dummy-backend capabilities without claiming actual filtering support.
+    return ~FormatSupportBits::TEXTURE_FILTER_LINEAR;
 }
 
 static Result NRI_CALL GetQueue(Device&, QueueType, uint32_t, Queue*& queue) {

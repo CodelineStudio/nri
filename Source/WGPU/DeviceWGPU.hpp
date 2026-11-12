@@ -499,6 +499,12 @@ FormatSupportBits DeviceWGPU::GetFormatSupport(Format format) const {
         return FormatSupportBits::UNSUPPORTED;
 
     FormatSupportBits support = GetFormatSupportWGPU(format);
+
+    if ((support & FormatSupportBits::TEXTURE) && wgpuDeviceHasFeature(m_Device, WGPUFeatureName_Float32Filterable) == WGPU_TRUE) {
+        if (format == Format::R32_SFLOAT || format == Format::RG32_SFLOAT || format == Format::RGBA32_SFLOAT)
+            support |= FormatSupportBits::TEXTURE_FILTER_LINEAR;
+    }
+
     if (format == Format::R11_G11_B10_UFLOAT && wgpuDeviceHasFeature(m_Device, WGPUFeatureName_RG11B10UfloatRenderable) != WGPU_TRUE)
         support &= ~(FormatSupportBits::COLOR_ATTACHMENT | FormatSupportBits::MULTISAMPLE_4X | FormatSupportBits::MULTISAMPLE_RESOLVE | FormatSupportBits::BLEND);
 

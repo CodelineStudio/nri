@@ -147,6 +147,16 @@ nri::FormatSupportBits nri::GetFormatSupportMetal(MTL::Device& device, Format fo
 
     support |= FormatSupportBits::TEXTURE;
 
+    // Apple7+ Filter capability: integer/stencil sampling is unfiltered. Float32 color and
+    // Depth32Float require the device query; the combined depth-stencil format requires Apple9+.
+    const bool isFloat32 = format == Format::R32_SFLOAT || format == Format::RG32_SFLOAT || format == Format::RGBA32_SFLOAT || format == Format::D32_SFLOAT;
+    const bool isFilterable = format == Format::D32_SFLOAT_S8_UINT
+        ? device.supportsFamily(MTL::GPUFamilyApple9)
+        : (!props.isInteger && !props.isStencil && (!isFloat32 || device.supports32BitFloatFiltering()));
+
+    if (isFilterable)
+        support |= FormatSupportBits::TEXTURE_FILTER_LINEAR;
+
     if (!props.isDepth && !props.isStencil)
         support |= FormatSupportBits::HOST_COPY;
 

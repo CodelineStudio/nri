@@ -162,3 +162,50 @@ run both compatibility and modern regressions before updating an accepted pin.
 The consumer integration plan and full progress ledger live in the parent
 NextMU repository when this fork is used there; this public document records
 only the reusable dependency's contract.
+
+## Linear texture filtering capability
+
+`FormatSupportBits::TEXTURE_FILTER_LINEAR` is additive bit 17 in the existing
+32-bit enum; structures, function tables and prior bit values are unchanged.
+It implies `TEXTURE` and promises non-comparison, weighted-average linear
+minification, magnification and mip filtering for a sampled view of that format.
+For depth-stencil formats it describes only the depth aspect. It does not promise
+anisotropic, comparison or min/max reduction filtering. Consumers must query the
+actual view format before using a sampler that requests linear filtering.
+
+Vulkan requires both optimal-tiling sampled-image and linear-filter feature bits.
+The existing Vulkan 1.1 normalization preserves the corresponding legacy flags;
+no newer extension, optional format inference or linear-tiling query is required.
+D3D11/12 require shader-sample support; shader-load support alone still grants
+`TEXTURE` but never the new bit. See the
+[Vulkan format-feature contract](https://docs.vulkan.org/refpages/latest/refpages/source/VkFormatFeatureFlagBits.html)
+and [D3D support-bit mapping](https://learn.microsoft.com/en-us/windows/win32/direct3ddxgi/checking-hardware-feature-support).
+
+Metal follows the Apple7+ Filter column, including compressed-format availability.
+Color float32 and Depth32Float require `supports32BitFloatFiltering`;
+Depth32Float_Stencil8 requires Apple9+ (its older-family table entries do not have
+the optional-filter footnote). Integer/stencil aspects are unfiltered. See
+[Apple's pixel-format tables, pages 13–15](https://developer.apple.com/metal/Metal-Feature-Set-Tables.pdf).
+
+WebGPU excludes integer and depth/stencil formats: depth filtering with comparison
+samplers does not establish ordinary filtering. R32/RG32/RGBA32 float require the
+**enabled device** `Float32Filterable` feature. Native normalized 16-bit formats
+retain their existing availability gate and wgpu-native's filterable sample type.
+See [WebGPU format capabilities](https://www.w3.org/TR/webgpu/#texture-format-caps)
+and the [pinned wgpu 29 format implementation](https://github.com/gfx-rs/wgpu/blob/v29.0.1/wgpu-types/src/texture/format.rs).
+NONE preserves its existing dummy capability mask while clearing this new bit.
+
+The existing compatibility baseline checks RGBA8 positive filtering, R32_UINT
+negative filtering and the `TEXTURE` implication. Existing legacy-normalization
+compile-time checks cover preservation and absence of the native filter flag;
+the public C/C++ fixtures check enum width and bit position. Native/masked Vulkan
+and D3D runtime results must be recorded separately; this implementation does not
+claim tested Metal/WebGPU, real older Vulkan devices, Android, Linux or macOS.
+
+Low-latency extension selection requires core Vulkan 1.2 or the enabled
+`VK_KHR_timeline_semaphore` extension, together with `VK_KHR_present_id` used by
+the existing NRI path. The forced no-timeline profile also removes
+`VK_NV_low_latency2`, so Vulkan 1.1 device creation does not retain that extension
+without its timeline dependency (VUID 01387). Native low-latency feature admission
+still requires the existing timeline/host-query and surface/present-id gates.
+See the [Khronos extension dependencies](https://docs.vulkan.org/refpages/latest/refpages/source/VK_NV_low_latency2.html).

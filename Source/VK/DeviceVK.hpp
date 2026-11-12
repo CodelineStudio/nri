@@ -706,7 +706,10 @@ void DeviceVK::ProcessDeviceExtensions(Vector<const char*>& desiredDeviceExts, b
     APPEND_EXT(true, VK_EXT_MUTABLE_DESCRIPTOR_TYPE_EXTENSION_NAME);
     APPEND_EXT(true, VK_NVX_BINARY_IMPORT_EXTENSION_NAME);
     APPEND_EXT(true, VK_NVX_IMAGE_VIEW_HANDLE_EXTENSION_NAME);
-    APPEND_EXT(true, VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
+    // Low latency requires native timeline support in core 1.2 or its enabled extension,
+    // plus the present-id extension used by NRI's low-latency path.
+    const bool hasTimelineDependency = m_MinorVersion >= 2 || IsExtensionSupported(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME, desiredDeviceExts);
+    APPEND_EXT(hasTimelineDependency && IsExtensionSupported(VK_KHR_PRESENT_ID_EXTENSION_NAME, desiredDeviceExts), VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
 }
 
 DeviceVK::DeviceVK(const CallbackInterface& callbacks, const AllocationCallbacks& allocationCallbacks)
@@ -981,8 +984,10 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 #endif
 
 #if NRI_COMPATIBILITY_NO_TIMELINE
+    // Remove the dependent optional extension as well, including on core 1.2+ profiles
+    // whose timeline feature is explicitly disabled below.
     desiredDeviceExts.erase(std::remove_if(desiredDeviceExts.begin(), desiredDeviceExts.end(), [](const char* extension) {
-        return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0;
+        return strcmp(extension, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME) == 0 || strcmp(extension, VK_NV_LOW_LATENCY_2_EXTENSION_NAME) == 0;
     }), desiredDeviceExts.end());
 #endif
 
@@ -4630,6 +4635,7 @@ NRI_INLINE FormatSupportBits DeviceVK::GetFormatSupport(Format format) const {
     }
 
     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT, FormatSupportBits::TEXTURE);
+    UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT, FormatSupportBits::TEXTURE_FILTER_LINEAR);
     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT, FormatSupportBits::STORAGE_TEXTURE);
     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT, FormatSupportBits::COLOR_ATTACHMENT);
     UPDATE_TEXTURE_SUPPORT_BITS(VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT, FormatSupportBits::DEPTH_STENCIL_ATTACHMENT);
