@@ -67,14 +67,20 @@ def compile_cached(driver, validator, artifacts, sources, output, cache, kind, f
 
         def valid(payload):
             try:
-                decode(payload)
-                return True
+                binary, _ = decode(payload)
+                admission = output / 'admission' / (name + '.spv')
+                admission.parent.mkdir(parents=True, exist_ok=True)
+                admission.write_bytes(binary)
+                result = subprocess.run([str(validator), '--target-env', manifest['target'], str(admission)],
+                                        capture_output=True, timeout=30)
+                return result.returncode == 0
             except (ValueError, KeyError, TypeError, IndexError, RuntimeError):
                 return False
 
         generated = None
+        factory_failed = False
 
-        def create():
+        def compile_payload():
             nonlocal compiled, generated
             if forbid_compiler:
                 raise RuntimeError('Warm-only run unexpectedly requested compilation: ' + name)
@@ -94,18 +100,29 @@ def compile_cached(driver, validator, artifacts, sources, output, cache, kind, f
                 raise ValueError('Compiler package changed during compilation')
             compiled += 1
             binary = prefix.with_suffix('.spv')
-            subprocess.run([str(validator), '--target-env', manifest['target'], str(binary)], check=True, timeout=30, capture_output=True)
             layout = reflection_layout(prefix.with_suffix('.reflection.json'))
             generated = canonical({'spirv': base64.b64encode(binary.read_bytes()).decode('ascii'), 'reflection': layout})
             return generated
+
+        def create():
+            nonlocal factory_failed
+            try:
+                return compile_payload()
+            except Exception:
+                factory_failed = True
+                raise
 
         begin = time.perf_counter()
         try:
             payload, status = cache.get_or_create(identity, create, valid)
         except (OSError, CacheCapacityError) as error:
+            if factory_failed:
+                raise
             # Cache availability must not prevent compiling valid input. Reuse
             # work already completed before a publication/storage failure.
             payload = generated if generated is not None else create()
+            if not valid(payload):
+                raise ValueError('Generated artifact fails admission checks')
             status = 'uncached_' + type(error).__name__
         binary, layout = decode(payload)
         (output / (name + '.spv')).write_bytes(binary)
