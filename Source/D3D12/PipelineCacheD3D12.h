@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <atomic>
+
 namespace nri {
 
 struct PipelineCacheD3D12 final : public DebugNameBase {
@@ -19,6 +21,14 @@ struct PipelineCacheD3D12 final : public DebugNameBase {
 
     inline ID3D12PipelineLibrary1* GetLibrary() const {
         return m_Library.GetInterface();
+    }
+
+    inline bool MayContainPipelines() const {
+        return m_MayContainPipelines.load(std::memory_order_acquire);
+    }
+
+    inline void MarkPipelineStored() {
+        m_MayContainPipelines.store(true, std::memory_order_release);
     }
 
     inline Lock& GetStoreLock() {
@@ -45,6 +55,9 @@ private:
     Vector<uint8_t> m_Blob; // do not sort, becaquse "m_Library" must be released before "m_Blob"
     ComPtr<ID3D12PipelineLibrary1> m_Library;
     Lock m_StoreLock;
+    // Imported blobs may be empty or nonempty; only a fresh, unwritten library
+    // is known to contain no pipelines. Never probe it with Load*Pipeline.
+    std::atomic<bool> m_MayContainPipelines = false;
 };
 
 } // namespace nri

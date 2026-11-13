@@ -15,8 +15,11 @@ Result PipelineCacheD3D12::Create(const PipelineCacheDesc& pipelineCacheDesc) {
     // Driver/device loss and allocation failure are not stale cache data. Keep
     // those results visible so callers cannot report a successful cache rebuild
     // on a lost device. Other import failures admit an empty-cache retry.
-    if (SUCCEEDED(hr))
+    if (SUCCEEDED(hr)) {
+        m_MayContainPipelines.store(!m_Blob.empty(), std::memory_order_release);
+
         return Result::SUCCESS;
+    }
     Result result = GetResultFromHRESULT(hr);
     return result == Result::DEVICE_LOST || result == Result::OUT_OF_MEMORY ? result : Result::OUT_OF_DATE;
 }

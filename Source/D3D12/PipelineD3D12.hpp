@@ -444,9 +444,18 @@ Result PipelineD3D12::CreateFromStream(const GraphicsPipelineDesc& graphicsPipel
     HRESULT hr = E_INVALIDARG;
     if (lib) {
         FormatPipelineCacheName(HashGraphicsPipelineDesc(graphicsPipelineDesc), cacheName);
-        hr = lib->LoadPipeline(cacheName, &pipelineStateStreamDesc, IID_PPV_ARGS(&m_PipelineState));
-        if (SUCCEEDED(hr))
-            return Result::SUCCESS;
+
+        if (cache->MayContainPipelines()) {
+            hr = lib->LoadPipeline(cacheName, &pipelineStateStreamDesc, IID_PPV_ARGS(&m_PipelineState));
+
+            if (SUCCEEDED(hr))
+                return Result::SUCCESS;
+
+            // Only a cache miss permits recompilation. Do not replace device
+            // loss, allocation failures or other native errors with a retry.
+            if (hr != E_INVALIDARG)
+                NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12PipelineLibrary::LoadPipeline");
+        }
     }
 
     if (graphicsPipelineDesc.flags & GraphicsPipelineBits::FAIL_ON_CACHE_MISS) {
@@ -461,7 +470,12 @@ Result PipelineD3D12::CreateFromStream(const GraphicsPipelineDesc& graphicsPipel
 
     if (lib) {
         ExclusiveScope lock(cache->GetStoreLock());
-        lib->StorePipeline(cacheName, m_PipelineState); // ignore failures (e.g., name already present), fallback PSO is still valid
+        hr = lib->StorePipeline(cacheName, m_PipelineState);
+
+        if (SUCCEEDED(hr))
+            cache->MarkPipelineStored();
+        else if (hr != E_INVALIDARG) // an existing name does not invalidate the newly created PSO
+            NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12PipelineLibrary::StorePipeline");
     }
 
     return Result::SUCCESS;
@@ -489,9 +503,18 @@ Result PipelineD3D12::Create(const ComputePipelineDesc& computePipelineDesc) {
     HRESULT hr = E_INVALIDARG;
     if (lib) {
         FormatPipelineCacheName(HashComputePipelineDesc(computePipelineDesc), cacheName);
-        hr = lib->LoadComputePipeline(cacheName, &computePipleineStateDesc, IID_PPV_ARGS(&m_PipelineState));
-        if (SUCCEEDED(hr))
-            return Result::SUCCESS;
+
+        if (cache->MayContainPipelines()) {
+            hr = lib->LoadComputePipeline(cacheName, &computePipleineStateDesc, IID_PPV_ARGS(&m_PipelineState));
+
+            if (SUCCEEDED(hr))
+                return Result::SUCCESS;
+
+            // Only a cache miss permits recompilation. Do not replace device
+            // loss, allocation failures or other native errors with a retry.
+            if (hr != E_INVALIDARG)
+                NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12PipelineLibrary::LoadComputePipeline");
+        }
     }
 
     if (computePipelineDesc.flags & ComputePipelineBits::FAIL_ON_CACHE_MISS) {
@@ -509,6 +532,7 @@ Result PipelineD3D12::Create(const ComputePipelineDesc& computePipelineDesc) {
 
         hr = lib->StorePipeline(cacheName, m_PipelineState);
         NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12PipelineLibrary::StorePipeline");
+        cache->MarkPipelineStored();
     }
 
     return Result::SUCCESS;
