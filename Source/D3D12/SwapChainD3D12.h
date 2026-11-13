@@ -38,6 +38,7 @@ struct SwapChainD3D12 final : public DisplayDescHelper, DebugNameBase {
     Result AcquireNextTexture(uint32_t& textureIndex);
     Result WaitForPresent(uint64_t presentId);
     Result Present(uint64_t presentId);
+    Result SetVSync(bool enabled);
 
     Result SetLatencySleepMode(const LatencySleepMode& latencySleepMode);
     Result SetLatencyMarker(uint64_t presentId, LatencyMarker latencyMarker);

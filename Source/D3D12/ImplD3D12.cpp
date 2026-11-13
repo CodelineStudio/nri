@@ -1328,6 +1328,10 @@ static Result NRI_CALL QueuePresent(SwapChain& swapChain, Fence&, uint64_t prese
     return ((SwapChainD3D12&)swapChain).Present(presentId);
 }
 
+static Result NRI_CALL SetSwapChainVSync(SwapChain& swapChain, bool enabled) {
+    return ((SwapChainD3D12&)swapChain).SetVSync(enabled);
+}
+
 Result DeviceD3D12::FillFunctionTable(SwapChainInterface& table) const {
     if (!m_Desc.features.swapChain)
         return Result::UNSUPPORTED;
@@ -1339,6 +1343,7 @@ Result DeviceD3D12::FillFunctionTable(SwapChainInterface& table) const {
     table.AcquireNextTexture = ::AcquireNextTexture;
     table.WaitForPresent = ::WaitForPresent;
     table.QueuePresent = ::QueuePresent;
+    table.SetSwapChainVSync = ::SetSwapChainVSync;
 
     return Result::SUCCESS;
 }

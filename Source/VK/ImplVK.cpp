@@ -1354,6 +1354,11 @@ static Result NRI_CALL QueuePresent(SwapChain& swapChain, Fence& releaseSemaphor
     return ((SwapChainVK&)swapChain).Present((FenceVK&)releaseSemaphore, presentId);
 }
 
+static Result NRI_CALL SetSwapChainVSync(SwapChain&, bool) {
+    // No in-place policy update is implemented for this backend.
+    return Result::UNSUPPORTED;
+}
+
 Result DeviceVK::FillFunctionTable(SwapChainInterface& table) const {
     if (!m_Desc.features.swapChain)
         return Result::UNSUPPORTED;
@@ -1365,6 +1370,7 @@ Result DeviceVK::FillFunctionTable(SwapChainInterface& table) const {
     table.AcquireNextTexture = ::AcquireNextTexture;
     table.WaitForPresent = ::WaitForPresent;
     table.QueuePresent = ::QueuePresent;
+    table.SetSwapChainVSync = ::SetSwapChainVSync;
 
     return Result::SUCCESS;
 }

@@ -200,6 +200,20 @@ NRI_INLINE Result SwapChainD3D12::WaitForPresent(uint64_t presentId) {
     return Result::UNSUPPORTED;
 }
 
+NRI_INLINE Result SwapChainD3D12::SetVSync(bool enabled) {
+    HRESULT hr = m_Device->GetDeviceRemovedReason();
+    NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12Device::GetDeviceRemovedReason");
+
+    // DXGI SyncInterval is chosen by Present, not CreateSwapChainForHwnd.
+    // Preserve ALLOW_TEARING as actually admitted at creation, plus every
+    // unrelated flag. This operation cannot grant a new DXGI capability.
+    if (enabled)
+        m_Flags |= SwapChainBits::VSYNC;
+    else
+        m_Flags &= ~SwapChainBits::VSYNC;
+    return Result::SUCCESS;
+}
+
 NRI_INLINE Result SwapChainD3D12::Present(uint64_t presentId) {
     MaybeUnused(presentId);
 

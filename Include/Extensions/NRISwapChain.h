@@ -6,6 +6,9 @@
 
 #define NRI_SWAP_CHAIN_H 1
 
+// Codeline fork table revision. nriGetInterface rejects nonmatching sizeof tables.
+#define NRI_SWAPCHAIN_INTERFACE_VERSION 2
+
 NriNamespaceBegin
 
 NriForwardStruct(SwapChain);
@@ -153,6 +156,15 @@ NriStruct(SwapChainInterface) {
     // "releaseSemaphore" must be created with "SWAPCHAIN_SEMAPHORE" initial value (ignored in D3D)
     // VK: its signal operation and every signal it depends on must have been submitted before native presentation
     Nri(Result)             (NRI_CALL *QueuePresent)            (NriRef(SwapChain) swapChain, NriRef(Fence) releaseSemaphore, uint64_t presentId);
+    // Codeline fork optional policy update. Threadsafe: no; externally serialize
+    // with this swap chain's calls. Call before the first AcquireNextTexture or
+    // after QueuePresent and before the next AcquireNextTexture, never between
+    // acquisition and presentation. Does not wait, acquire, submit or present.
+    // SUCCESS changes only the VSYNC policy for subsequent presents. Creation-
+    // time capabilities (including admitted ALLOW_TEARING) remain unchanged.
+    // UNSUPPORTED leaves the policy and native state unchanged: recreate with
+    // the desired VSYNC flag. Other failures must not be treated as fallback.
+    Nri(Result)             (NRI_CALL *SetSwapChainVSync)       (NriRef(SwapChain) swapChain, bool enabled);
 };
 
 /*

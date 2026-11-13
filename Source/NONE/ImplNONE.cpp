@@ -1408,6 +1408,11 @@ static Result NRI_CALL QueuePresent(SwapChain&, Fence&, uint64_t) {
     return Result::SUCCESS;
 }
 
+static Result NRI_CALL SetSwapChainVSync(SwapChain&, bool) {
+    // No in-place policy update is implemented for this backend.
+    return Result::UNSUPPORTED;
+}
+
 Result DeviceNONE::FillFunctionTable(SwapChainInterface& table) const {
     table.CreateSwapChain = ::CreateSwapChain;
     table.DestroySwapChain = ::DestroySwapChain;
@@ -1416,6 +1421,7 @@ Result DeviceNONE::FillFunctionTable(SwapChainInterface& table) const {
     table.AcquireNextTexture = ::AcquireNextTexture;
     table.WaitForPresent = ::WaitForPresent;
     table.QueuePresent = ::QueuePresent;
+    table.SetSwapChainVSync = ::SetSwapChainVSync;
 
     return Result::SUCCESS;
 }

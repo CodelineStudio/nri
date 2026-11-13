@@ -2234,6 +2234,10 @@ static Result NRI_CALL QueuePresent(SwapChain& swapChain, Fence& releaseSemaphor
     return ((SwapChainVal&)swapChain).Present(releaseSemaphore, presentId);
 }
 
+static Result NRI_CALL SetSwapChainVSync(SwapChain& swapChain, bool enabled) {
+    return ((SwapChainVal&)swapChain).SetVSync(enabled);
+}
+
 Result DeviceVal::FillFunctionTable(SwapChainInterface& table) const {
     if (!m_IsExtSupported.swapChain)
         return Result::UNSUPPORTED;
@@ -2245,6 +2249,7 @@ Result DeviceVal::FillFunctionTable(SwapChainInterface& table) const {
     table.AcquireNextTexture = ::AcquireNextTexture;
     table.WaitForPresent = ::WaitForPresent;
     table.QueuePresent = ::QueuePresent;
+    table.SetSwapChainVSync = ::SetSwapChainVSync;
 
     return Result::SUCCESS;
 }

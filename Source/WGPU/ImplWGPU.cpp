@@ -964,6 +964,11 @@ static Result NRI_CALL QueuePresent(SwapChain& swapChain, Fence&, uint64_t) {
     return ((SwapChainWGPU&)swapChain).Present();
 }
 
+static Result NRI_CALL SetSwapChainVSync(SwapChain&, bool) {
+    // No in-place policy update is implemented for this backend.
+    return Result::UNSUPPORTED;
+}
+
 Result DeviceWGPU::FillFunctionTable(SwapChainInterface& table) const {
     if (!m_Desc.features.swapChain)
         return Result::UNSUPPORTED;
@@ -975,6 +980,7 @@ Result DeviceWGPU::FillFunctionTable(SwapChainInterface& table) const {
     table.AcquireNextTexture = ::AcquireNextTexture;
     table.WaitForPresent = ::WaitForPresent;
     table.QueuePresent = ::QueuePresent;
+    table.SetSwapChainVSync = ::SetSwapChainVSync;
 
     return Result::SUCCESS;
 }

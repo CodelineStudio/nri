@@ -27,6 +27,7 @@ struct SwapChainVal final : public ObjectVal {
     Result AcquireNextTexture(Fence& acquireSemaphore, uint32_t& textureIndex);
     Result WaitForPresent(uint64_t presentId);
     Result Present(Fence& releaseSemaphore, uint64_t presentId);
+    Result SetVSync(bool enabled);
     Result GetDisplayDesc(DisplayDesc& displayDesc) const;
 
     Result SetLatencySleepMode(const LatencySleepMode& latencySleepMode);
@@ -37,6 +38,7 @@ struct SwapChainVal final : public ObjectVal {
 private:
     SwapChainDesc m_SwapChainDesc = {}; // .natvis
     Vector<TextureVal*> m_Textures;
+    bool m_HasAcquiredTexture = false;
 };
 
 } // namespace nri

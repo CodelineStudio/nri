@@ -33,7 +33,10 @@ NRI_INLINE Result SwapChainVal::AcquireNextTexture(Fence& acquireSemaphore, uint
 
     Fence* textureAcquiredSemaphoreImpl = NRI_GET_IMPL(Fence, &acquireSemaphore);
 
-    return GetSwapChainInterfaceImpl().AcquireNextTexture(*GetImpl(), *textureAcquiredSemaphoreImpl, textureIndex);
+    const Result result = GetSwapChainInterfaceImpl().AcquireNextTexture(*GetImpl(), *textureAcquiredSemaphoreImpl, textureIndex);
+    if (result == Result::SUCCESS)
+        m_HasAcquiredTexture = true;
+    return result;
 }
 
 NRI_INLINE Result SwapChainVal::WaitForPresent(uint64_t presentId) {
@@ -52,7 +55,22 @@ NRI_INLINE Result SwapChainVal::Present(Fence& releaseSemaphore, uint64_t presen
 
     Fence* renderingFinishedSemaphoreImpl = NRI_GET_IMPL(Fence, &releaseSemaphore);
 
-    return GetSwapChainInterfaceImpl().QueuePresent(*GetImpl(), *renderingFinishedSemaphoreImpl, presentId);
+    const Result result = GetSwapChainInterfaceImpl().QueuePresent(*GetImpl(), *renderingFinishedSemaphoreImpl, presentId);
+    if (result == Result::SUCCESS)
+        m_HasAcquiredTexture = false;
+    return result;
+}
+
+NRI_INLINE Result SwapChainVal::SetVSync(bool enabled) {
+    NRI_RETURN_ON_FAILURE(&m_Device, !m_HasAcquiredTexture, Result::INVALID_ARGUMENT, "SetSwapChainVSync must not run between acquisition and successful presentation");
+    const Result result = GetSwapChainInterfaceImpl().SetSwapChainVSync(*GetImpl(), enabled);
+    if (result == Result::SUCCESS) {
+        if (enabled)
+            m_SwapChainDesc.flags |= SwapChainBits::VSYNC;
+        else
+            m_SwapChainDesc.flags &= ~SwapChainBits::VSYNC;
+    }
+    return result;
 }
 
 NRI_INLINE Result SwapChainVal::GetDisplayDesc(DisplayDesc& displayDesc) const {
