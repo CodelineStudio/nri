@@ -1248,11 +1248,16 @@ static Result NRI_CALL GetRootSignatureMetal(const PipelineLayout& pipelineLayou
     return ((const PipelineLayoutMetal&)pipelineLayout).GetRootSignature(json, size);
 }
 
+static Result NRI_CALL GetPipelineCacheIdentityMetal(const Device& device, PipelineCacheIdentityMetal& identity) {
+    return PipelineCacheMetal::GetIdentity((const DeviceMetal&)device, identity);
+}
+
 Result DeviceMetal::FillFunctionTable(WrapperMetalInterface& table) const {
     table.CreateBufferMetal = ::CreateBufferMetal;
     table.CreateTextureMetal = ::CreateTextureMetal;
     table.CreateFenceMetal = ::CreateFenceMetal;
     table.GetRootSignatureMetal = ::GetRootSignatureMetal;
+    table.GetPipelineCacheIdentityMetal = ::GetPipelineCacheIdentityMetal;
 
     return Result::SUCCESS;
 }

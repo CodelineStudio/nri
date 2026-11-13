@@ -1856,6 +1856,10 @@ NRI_INLINE Result DeviceVal::CreateFence(const FenceMetalDesc& fenceMetalDesc, F
     return result;
 }
 
+NRI_INLINE Result DeviceVal::GetPipelineCacheIdentity(PipelineCacheIdentityMetal& identity) const {
+    return m_iWrapperMetalImpl.GetPipelineCacheIdentityMetal(m_Impl, identity);
+}
+
 NRI_INLINE Result DeviceVal::GetRootSignature(const PipelineLayout& pipelineLayout, char* json, uint64_t& size) {
     NRI_RETURN_ON_FAILURE(this, json == nullptr || size != 0, Result::INVALID_ARGUMENT, "'size' is 0");
 

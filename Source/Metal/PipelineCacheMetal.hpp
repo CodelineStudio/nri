@@ -1,6 +1,7 @@
 // © 2026 NVIDIA Corporation
 
 #include <sys/stat.h>
+#include <sys/sysctl.h>
 #include <unistd.h>
 
 // "newArchiveWithURL" can crash on malformed data, thus data without a valid header is rejected as "OUT_OF_DATE".
@@ -21,6 +22,40 @@ struct ConvertedShaderEntryMetal {
 constexpr uint32_t PIPELINE_CACHE_MAGIC = 0x4D34524E; // "NR4M"
 constexpr uint32_t PIPELINE_CACHE_VERSION = 3;
 constexpr char TEMP_FILE_NAME[] = "nri-cache-XXXXXX";
+
+#if NRI_ENABLE_METAL_SHADER_CONVERTER
+// Defined with the converter implementation later in the same backend TU.
+static inline bool GetConverterIdentity(uint32_t (&version)[4], uint8_t (&uuid)[16]);
+#endif
+
+NRI_INLINE Result PipelineCacheMetal::GetIdentity(const DeviceMetal& device, PipelineCacheIdentityMetal& identity) {
+    PipelineCacheIdentityMetal candidate = {};
+    AutoreleasePoolMetal autoreleasePool;
+    const MTL::Device* native = device.GetNativeObject();
+    candidate.registryId = native->registryID();
+    NS::String* name = native->name();
+    const char* deviceName = name ? name->utf8String() : nullptr;
+
+    if (!deviceName || !deviceName[0] || strlen(deviceName) >= sizeof(candidate.deviceName))
+        return Result::UNSUPPORTED;
+    memcpy(candidate.deviceName, deviceName, strlen(deviceName) + 1);
+    size_t size = sizeof(candidate.osBuild);
+
+    if (!candidate.registryId || sysctlbyname("kern.osversion", candidate.osBuild, &size, nullptr, 0) != 0 ||
+        size < 2 || size > sizeof(candidate.osBuild) || candidate.osBuild[size - 1] != 0)
+        return Result::UNSUPPORTED;
+    candidate.archiveVersion = PIPELINE_CACHE_VERSION;
+    candidate.convertedShaderVersion = CONVERTED_SHADER_VERSION;
+#if NRI_ENABLE_METAL_SHADER_CONVERTER
+    candidate.converterEnabled = true;
+
+    if (!GetConverterIdentity(candidate.converterVersion, candidate.converterLibraryUuid))
+        return Result::UNSUPPORTED;
+#endif
+    identity = candidate;
+
+    return Result::SUCCESS;
+}
 
 // Reserves a unique file in the user's temporary directory
 static inline bool CreateTempFile(char (&path)[PATH_MAX], const void* data, size_t size) {
@@ -222,14 +257,15 @@ Result PipelineCacheMetal::Create(const PipelineCacheDesc& desc) {
             return Result::FAILURE;
         }
 
-        // Incompatible archives (i.e. from another OS version) are reported via "error" and dropped. Converted shaders are still usable
+        // Framing/hash incompatibility was rejected above. Do not classify an
+        // unknown native error (including allocation/device errors) as stale data.
         MTL4::Archive* archive = m_Device.GetNativeObject()->newArchive(GetFileUrl(file.path), &error);
 
         if (!archive) {
-            NRI_REPORT_WARNING(&m_Device, "Pipeline cache archive is out of date: %s", error ? error->localizedDescription()->utf8String() : "unknown error");
+            NRI_REPORT_ERROR(&m_Device, "Metal pipeline cache archive creation failed: %s", error ? error->localizedDescription()->utf8String() : "unknown error");
             unlink(file.path);
 
-            continue;
+            return Result::FAILURE;
         }
 
         m_Archives.push_back(archive);

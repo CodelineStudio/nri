@@ -158,44 +158,68 @@ static inline IRCompatibilityFlags GetIRCompatibilityFlags(MTL::Device& device) 
 // Bump if NRI conversion settings change (converted shaders are persistent, see "PipelineCacheMetal")
 constexpr uint32_t CONVERSION_REVISION = 1;
 
-// Converted shaders are identified by the Converter header version and the "LC_UUID" of the loaded library
+// Exact loaded Converter identity shared by conversion keys and hardware cache admission.
+// Bound every Mach-O command against sizeofcmds; never accept a version-only
+// persistent identity if the loaded image cannot be identified.
+static inline bool GetConverterIdentity(uint32_t (&version)[4], uint8_t (&uuid)[16]) {
+    version[0] = CONVERSION_REVISION;
+    version[1] = IR_VERSION_MAJOR;
+    version[2] = IR_VERSION_MINOR;
+    version[3] = IR_VERSION_PATCH;
+    Dl_info info = {};
+
+    if (!dladdr((const void*)&IRCompilerCreate, &info) || !info.dli_fbase)
+        return false;
+    const mach_header_64* image = (const mach_header_64*)info.dli_fbase;
+
+    if (image->magic != MH_MAGIC_64)
+        return false;
+    const uint8_t* commands = (const uint8_t*)(image + 1);
+    size_t offset = 0;
+
+    for (uint32_t i = 0; i < image->ncmds; i++) {
+        if (offset > image->sizeofcmds || image->sizeofcmds - offset < sizeof(load_command))
+            return false;
+        load_command command = {};
+        memcpy(&command, commands + offset, sizeof(command));
+
+        if (command.cmdsize < sizeof(command) || command.cmdsize > image->sizeofcmds - offset)
+            return false;
+
+        if (command.cmd == LC_UUID) {
+            if (command.cmdsize < sizeof(uuid_command))
+                return false;
+            uuid_command identity = {};
+            memcpy(&identity, commands + offset, sizeof(identity));
+            memcpy(uuid, identity.uuid, sizeof(identity.uuid));
+
+            return true;
+        }
+        offset += command.cmdsize;
+    }
+
+    return false;
+}
+
+// Successful converter keys remain byte-exact. Direct NRI users retain the old
+// version-only fallback, but the shared persistent cache rejects missing UUIDs.
 static inline uint64_t GetConverterHash(DeviceMetal& device) {
     static const uint64_t s_Hash = [&device] {
-        const uint32_t version[] = {CONVERSION_REVISION, IR_VERSION_MAJOR, IR_VERSION_MINOR, IR_VERSION_PATCH};
-        uint64_t hash = Fnv1a64(FNV_INIT, version, sizeof(version));
+        uint32_t version[4] = {};
+        uint8_t uuid[16] = {};
+        const bool identified = GetConverterIdentity(version, uuid);
+        const uint64_t hash = Fnv1a64(FNV_INIT, version, sizeof(version));
 
-        Dl_info info = {};
-
-        if (!dladdr((const void*)&IRCompilerCreate, &info) || !info.dli_fbase) {
-            NRI_REPORT_WARNING(&device, "Metal Shader Converter image is unknown, cached conversions may be stale after a Converter update");
-
-            return hash;
-        }
-
-        const mach_header_64* image = (const mach_header_64*)info.dli_fbase;
-        const uint8_t* command = (const uint8_t*)(image + 1);
-
-        for (uint32_t i = 0; image->magic == MH_MAGIC_64 && i < image->ncmds; i++) {
-            load_command loadCommand = {};
-            memcpy(&loadCommand, command, sizeof(loadCommand));
-
-            if (loadCommand.cmd == LC_UUID) {
-                uuid_command uuidCommand = {};
-                memcpy(&uuidCommand, command, sizeof(uuidCommand));
-
-                return Fnv1a64(hash, uuidCommand.uuid, sizeof(uuidCommand.uuid));
-            }
-
-            command += loadCommand.cmdsize;
-        }
-
-        NRI_REPORT_WARNING(&device, "Metal Shader Converter image has no 'LC_UUID', cached conversions may be stale after a Converter update");
+        if (identified)
+            return Fnv1a64(hash, uuid, sizeof(uuid));
+        NRI_REPORT_WARNING(&device, "Metal Shader Converter image identity is unknown, cached conversions may be stale after a Converter update");
 
         return hash;
     }();
 
     return s_Hash;
 }
+
 
 // Shared by graphics, compute and ray-tracing pipelines
 static inline IRCompiler* CreateIRCompiler(MTL::Device& device, const PipelineLayoutMetal& layout) {

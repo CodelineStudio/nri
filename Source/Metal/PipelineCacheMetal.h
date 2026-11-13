@@ -24,6 +24,7 @@ struct PendingPipelineMetal {
 struct PipelineCacheMetal final : public DebugNameBase {
     PipelineCacheMetal(DeviceMetal& device);
     ~PipelineCacheMetal();
+    static Result GetIdentity(const DeviceMetal& device, PipelineCacheIdentityMetal& identity);
     Result Create(const PipelineCacheDesc& desc);
     Result GetData(void* dst, uint64_t& size) const;
     DeviceMetal& GetDevice() const;
