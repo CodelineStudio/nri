@@ -741,6 +741,17 @@ lifecycle coverage, a performance result, or a long-duration soak.
 
 ### Native fence query failures
 
+On Windows, `NRIFenceQueryTests` also compiles the actual `FenceD3D12` class and
+wait implementation against controlled native fence and event dependencies.
+Sixteen cases cover completed/zero values, device removal before and during
+busy/event waits, timeout and event errors, premature wakeups, successful
+completion, native HRESULT failures and the no-op swapchain fence. No GPU reset
+or driver fault is induced. `UINT64_MAX` is device removal, including when the
+requested value is zero; an event wake alone does not establish completion.
+The public `CoreInterface::Wait` ABI remains void. This correction improves the
+typed result used by `QueueD3D12::WaitIdle`; it does not fix the upload helper's
+separate wait-error propagation or borrowed-destination lifetime contract.
+
 NRIFenceQueryTests compiles the actual FenceVK class and implementation against
 a controlled device, scheduler and Vulkan dispatch. It checks device loss,
 host/device allocation errors and unknown errors with both untouched output and

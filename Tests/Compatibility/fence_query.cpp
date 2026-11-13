@@ -111,6 +111,10 @@ namespace nri {
 #include "FenceVK.hpp"
 }
 
+#if defined(_WIN32)
+uint32_t RunFenceD3D12WaitTests();
+#endif
+
 int main() {
     uint32_t failures = 0;
     auto check = [&](bool success, const char* name) {
@@ -159,6 +163,10 @@ int main() {
         check(fence.Create(nri::FenceDesc{}) == nri::Result::SUCCESS, "logical fence");
         check(fence.GetFenceValue() == 73 && scheduler.queries == 1 && device.queries == 0 && device.reports == 0, "legacy scheduler remains sole completion source");
     }
+
+#if defined(_WIN32)
+    failures += RunFenceD3D12WaitTests();
+#endif
 
     std::printf("Fence query checks: %u failures\n", failures);
 

@@ -55,20 +55,33 @@ NRI_INLINE Result FenceD3D12::Wait(uint64_t value) {
     if (!m_Fence)
         return Result::SUCCESS;
 
+    uint64_t completedValue = m_Fence->GetCompletedValue();
+    NRI_RETURN_ON_FAILURE(&m_Device, completedValue != UINT64_MAX, Result::DEVICE_LOST, "ID3D12Fence::GetCompletedValue() reported device removal!");
+
+    if (completedValue >= value)
+        return Result::SUCCESS;
+
+    uint32_t waitResult = WAIT_OBJECT_0;
+
     if (m_Event == 0 || m_Event == INVALID_HANDLE_VALUE) {
-        // Busy wait
-        while (m_Fence->GetCompletedValue() < value)
-            ;
-    } else if (m_Fence->GetCompletedValue() < value) {
+        // UINT64_MAX exits this loop but is device removal, not completion.
+        do {
+            completedValue = m_Fence->GetCompletedValue();
+        } while (completedValue < value);
+    } else {
         // Event-based wait
         ResetEvent(m_Event);
 
         HRESULT hr = m_Fence->SetEventOnCompletion(value, m_Event);
         NRI_RETURN_ON_BAD_HRESULT(&m_Device, hr, "ID3D12Fence::SetEventOnCompletion");
 
-        uint32_t result = WaitForSingleObjectEx(m_Event, NRI_TIMEOUT_FENCE, FALSE);
-        NRI_RETURN_ON_FAILURE(&m_Device, result == WAIT_OBJECT_0, Result::FAILURE, "WaitForSingleObjectEx() failed, result = 0x%08X!", result);
+        waitResult = WaitForSingleObjectEx(m_Event, NRI_TIMEOUT_FENCE, FALSE);
+        completedValue = m_Fence->GetCompletedValue();
     }
+
+    NRI_RETURN_ON_FAILURE(&m_Device, completedValue != UINT64_MAX, Result::DEVICE_LOST, "ID3D12Fence::GetCompletedValue() reported device removal!");
+    NRI_RETURN_ON_FAILURE(&m_Device, waitResult == WAIT_OBJECT_0, Result::FAILURE, "WaitForSingleObjectEx() failed, result = 0x%08X!", waitResult);
+    NRI_RETURN_ON_FAILURE(&m_Device, completedValue >= value, Result::FAILURE, "Fence wait returned before requested completion!");
 
     return Result::SUCCESS;
 }
