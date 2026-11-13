@@ -503,6 +503,8 @@ void DeviceMetal::FillDesc(const AdapterDesc& adapterDesc) {
     m_Desc.features.resourceAliasing = true;
     m_Desc.features.componentSwizzle = true;
     m_Desc.features.constantAlphaBlendFactors = true;
+    // Metal color-attachment descriptors carry independent blend state/write masks.
+    m_Desc.features.independentBlend = true;
     m_Desc.features.independentFrontAndBackStencilReferenceAndMasks = true;
     m_Desc.features.dynamicDepthBias = true;
     m_Desc.features.depthBoundsTest = m_Device->supportsFamily(MTL::GPUFamilyApple10);

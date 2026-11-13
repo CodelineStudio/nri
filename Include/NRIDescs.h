@@ -2346,6 +2346,7 @@ NriStruct(DeviceDesc) {
         bool descriptorHeap;                                      // NRIDescriptorHeap
         bool video;                                               // NRIVideo
         bool componentSwizzle;                                    // see "ComponentSwizzle" (unsupported only in D3D11)
+        bool independentBlend;                                   // independent per-color-attachment blend state and write mask (format support is separate)
         bool independentFrontAndBackStencilReferenceAndMasks;     // see "StencilAttachmentDesc::back"
         bool filterOpMinMax;                                      // see "FilterOp"
         bool constantAlphaBlendFactors;                           // see "BlendFactor::CONSTANT_ALPHA" and "BlendFactor::ONE_MINUS_CONSTANT_ALPHA"

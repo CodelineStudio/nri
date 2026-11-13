@@ -477,6 +477,8 @@ void DeviceWGPU::FillDesc(const AdapterDesc& adapterDesc) {
     m_Desc.features.rectDepthStencilClears = true;
     m_Desc.features.getMemoryDesc2 = true;
     m_Desc.features.componentSwizzle = wgpuDeviceHasFeature(m_Device, WGPUFeatureName_TextureComponentSwizzle) == WGPU_TRUE;
+    // WebGPU fragment targets each carry their own blend state and write mask.
+    m_Desc.features.independentBlend = true;
     m_Desc.features.rootConstantsOffset = true;
     m_Desc.shaderFeatures.nativeF16 = wgpuDeviceHasFeature(m_Device, WGPUFeatureName_ShaderF16) == WGPU_TRUE;
     m_Desc.shaderFeatures.drawParameters = wgpuDeviceHasFeature(m_Device, WGPUFeatureName_IndirectFirstInstance) == WGPU_TRUE;

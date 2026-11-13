@@ -39,6 +39,10 @@ NriStruct(DeviceCreationVKDesc) {
     // Switches (disabled by default)
     bool enableNRIValidation;
     bool enableMemoryZeroInitialization;                // page-clears are fast, but memory is not cleared by default in VK
+    // Imported devices cannot report enabled core features after creation.
+    // Set only if VkPhysicalDeviceFeatures::independentBlend was enabled when
+    // creating vkDevice; false conservatively leaves this capability unavailable.
+    bool independentBlendEnabled;
 };
 
 NriStruct(CommandAllocatorVKDesc) {

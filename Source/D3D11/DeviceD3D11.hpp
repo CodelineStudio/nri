@@ -635,6 +635,7 @@ void DeviceD3D11::FillDesc() {
     m_Desc.features.geometryShader = true;
     m_Desc.features.lowLatency = HasNvExt();
     m_Desc.features.filterOpMinMax = options1.MinMaxFiltering != 0;
+    m_Desc.features.independentBlend = m_Device->GetFeatureLevel() >= D3D_FEATURE_LEVEL_10_1;
     m_Desc.features.logicOp = options.OutputMergerLogicOp != 0;
     m_Desc.features.lineSmoothing = true;
     m_Desc.features.pipelineStatistics = true;

@@ -952,10 +952,15 @@ void DeviceD3D12::FillDesc(bool disableD3D12EnhancedBarrier) {
     // Agility 1.619
     D3D12_FEATURE_DATA_D3D12_OPTIONS22 options22 = {};
     hr = CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS22, &options22, sizeof(options22));
-    if (FAILED(hr))
+
+    if (SUCCEEDED(hr)) {
+        m_Desc.shaderStage.compute.dispatchMaxDim[0] = options22.Max1DDispatchSize;
+        m_Desc.shaderStage.task.dispatchMaxDim[0] = options22.Max1DDispatchMeshSize;
+    } else if (hr != E_INVALIDARG)
         NRI_REPORT_WARNING(this, "ID3D12Device::CheckFeatureSupport(options22) failed, result = 0x%08X!", hr);
-    m_Desc.shaderStage.compute.dispatchMaxDim[0] = options22.Max1DDispatchSize;
-    m_Desc.shaderStage.task.dispatchMaxDim[0] = options22.Max1DDispatchMeshSize;
+    // Older runtimes can reject this optional enum with E_INVALIDARG. The SDK
+    // structure and size above match; leave the baseline dispatch limits below
+    // unchanged and never consume partially written output from a failed query.
 
     // Agility 1.620
     D3D12_FEATURE_DATA_ASYNC_COMMANDS asyncCommands = {};
@@ -1258,6 +1263,8 @@ void DeviceD3D12::FillDesc(bool disableD3D12EnhancedBarrier) {
     m_Desc.features.lowLatency = HasNvExt();
     m_Desc.features.componentSwizzle = true;
     m_Desc.features.filterOpMinMax = levels.MaxSupportedFeatureLevel >= D3D_FEATURE_LEVEL_11_1 ? true : false;
+    // Core D3D12 output-merger state: PipelineD3D12 enables independent blending.
+    m_Desc.features.independentBlend = true;
     m_Desc.features.logicOp = options.OutputMergerLogicOp != 0;
     m_Desc.features.depthBoundsTest = options2.DepthBoundsTestSupported != 0;
     m_Desc.features.sharedResources = true;
@@ -2386,6 +2393,23 @@ NRI_INLINE FormatSupportBits DeviceD3D12::GetFormatSupport(Format format) const 
             qualityLevels.SampleCount = 2 << i;
             if (SUCCEEDED(CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &qualityLevels, sizeof(qualityLevels))) && qualityLevels.NumQualityLevels > 0)
                 supportBits |= (FormatSupportBits)((uint32_t)FormatSupportBits::MULTISAMPLE_2X << i);
+        }
+
+        // Depth allocations use the typeless format family, with distinct typed
+        // DSV and SRV formats. Query the same depth-plane alias used by
+        // DescriptorD3D12 instead of asking the DSV format for shader support.
+        // Keep attachment, storage, buffer and multisample capabilities from
+        // their original typed query; a sampleable alias grants none of those.
+        if (formatProps.isDepth && (formatSupport.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D) &&
+            (formatSupport.Support1 & D3D12_FORMAT_SUPPORT1_DEPTH_STENCIL)) {
+            D3D12_FEATURE_DATA_FORMAT_SUPPORT sampledSupport = {GetPatchedShaderResourceViewFormat(dxgiFormat, PlaneBits::DEPTH)};
+            hr = CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &sampledSupport, sizeof(sampledSupport));
+            if (SUCCEEDED(hr) && (sampledSupport.Support1 & D3D12_FORMAT_SUPPORT1_TEXTURE2D)) {
+                if (sampledSupport.Support1 & (D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE | D3D12_FORMAT_SUPPORT1_SHADER_LOAD))
+                    supportBits |= FormatSupportBits::TEXTURE;
+                if (sampledSupport.Support1 & D3D12_FORMAT_SUPPORT1_SHADER_SAMPLE)
+                    supportBits |= FormatSupportBits::TEXTURE_FILTER_LINEAR;
+            }
         }
     }
 

@@ -1163,6 +1163,8 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
         PNEXTCHAIN_APPEND_STRUCT(DeviceFaultFeatures);
 
     m_VK.GetPhysicalDeviceFeatures2(m_PhysicalDevice, &features);
+    NRI_RETURN_ON_FAILURE(this, !isWrapper || !descVK.independentBlendEnabled || features.features.independentBlend,
+        Result::UNSUPPORTED, "Imported device declares independentBlend enabled, but the physical device does not support it");
 
     if (useIndividualFeatures) {
         // Normalize into local aggregates only; never put them on the 1.1 chain.
@@ -2178,6 +2180,9 @@ Result DeviceVK::Create(const DeviceCreationDesc& desc, const DeviceCreationVKDe
 
         m_Desc.features.lowLatency = !needsScheduler && m_VK.GetPhysicalDeviceSurfaceCapabilities2KHR && m_IsSupported.presentId != 0 && IsExtensionSupported(VK_NV_LOW_LATENCY_2_EXTENSION_NAME, desiredDeviceExts);
         m_Desc.features.componentSwizzle = true;
+        // Owned devices enable this queried core feature through deviceCreateInfo.pNext.
+        // For imported devices, support alone does not establish enabled state.
+        m_Desc.features.independentBlend = features.features.independentBlend != 0 && (!isWrapper || descVK.independentBlendEnabled);
         m_Desc.features.independentFrontAndBackStencilReferenceAndMasks = true;
         m_Desc.features.filterOpMinMax = features12.samplerFilterMinmax;
         m_Desc.features.constantAlphaBlendFactors = true;
